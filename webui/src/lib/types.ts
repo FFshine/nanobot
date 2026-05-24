@@ -128,10 +128,11 @@ export interface UIFileEdit {
 }
 
 export interface ChatSummary {
-  /** Server-side session key, e.g. ``websocket:abcd-...``. */
+  /** Server-side session key, e.g. ``websocket:user_id:chat_id``. */
   key: string;
-  /** Local channel + chat_id parts derived from ``key`` for convenience. */
+  /** Local channel, user_id, and chat_id parts derived from ``key`` for convenience. */
   channel: string;
+  userId: string;
   chatId: string;
   createdAt: string | null;
   updatedAt: string | null;
@@ -563,3 +564,23 @@ export type Outbound =
        * generic websocket protocol for other clients. */
       webui?: true;
     };
+
+/** User info from /api/auth/* endpoints */
+export interface User {
+  id: string;
+  username: string;
+  displayName: string;
+  role: "admin" | "user";
+  settings: Record<string, unknown>;
+}
+
+/** Response from GET /webui/bootstrap */
+export interface BootPayload {
+  token?: string;
+  ws_token: string;
+  ws_path: string;
+  expires_in: number;
+  model_name: string;
+  has_users: boolean;
+  user?: User;
+}

@@ -10,11 +10,21 @@
       "gatewayHint": "请确认 gateway 已启动（`nanobot gateway`），并且当前页面与 gateway 运行在同一台机器上。"
     },
     "auth": {
-      "title": "需要验证",
-      "hint": "请输入 gateway 配置中的 tokenIssueSecret。",
-      "placeholder": "密码",
-      "submit": "连接",
-      "invalid": "密码无效，请重试。"
+      "title": "登录",
+      "hint": "请输入您的用户名和密码。",
+      "setupTitle": "创建管理员账户",
+      "setupHint": "设置您的第一个管理员账户以开始使用。",
+      "username": "用户名",
+      "usernamePlaceholder": "请输入用户名",
+      "password": "密码",
+      "passwordPlaceholder": "请输入密码",
+      "confirmPassword": "确认密码",
+      "confirmPasswordPlaceholder": "请再次输入密码",
+      "passwordMismatch": "两次输入的密码不一致。",
+      "passwordTooShort": "密码至少需要 6 个字符。",
+      "submit": "登录",
+      "createAdmin": "创建管理员账户",
+      "invalid": "用户名或密码无效，请重试。"
     },
     "account": {
       "section": "账户",

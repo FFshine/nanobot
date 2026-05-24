@@ -8,6 +8,7 @@ import {
   fetchWebuiThread,
   listSessions,
 } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import { deriveTitle } from "@/lib/format";
 import type { ChatSummary, UIMessage } from "@/lib/types";
 
@@ -68,7 +69,8 @@ export function useSessions(): {
 
   const createChat = useCallback(async (): Promise<string> => {
     const chatId = await client.newChat();
-    const key = `websocket:${chatId}`;
+    const userId = getUser()?.id ?? "";
+    const key = userId ? `websocket:${userId}:${chatId}` : `websocket:${chatId}`;
     optimisticKeysRef.current.add(key);
     // Optimistic insert; a subsequent refresh will replace it with the
     // authoritative row once the server persists the session.
@@ -76,6 +78,7 @@ export function useSessions(): {
       {
         key,
         channel: "websocket",
+        userId,
         chatId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

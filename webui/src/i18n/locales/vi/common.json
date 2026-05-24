@@ -10,11 +10,21 @@
       "gatewayHint": "Hãy chắc chắn gateway đang chạy (`nanobot gateway`) và trang này được mở trên cùng máy."
     },
     "auth": {
-      "title": "Cần xác thực",
-      "hint": "Nhập secret được cấu hình là tokenIssueSecret trong cấu hình gateway.",
-      "placeholder": "Mật khẩu",
-      "submit": "Kết nối",
-      "invalid": "Mật khẩu không hợp lệ. Hãy thử lại."
+      "title": "Đăng nhập",
+      "hint": "Nhập tên người dùng và mật khẩu của bạn.",
+      "submit": "Đăng nhập",
+      "invalid": "Thông tin đăng nhập không hợp lệ. Hãy thử lại.",
+      "setupTitle": "Tạo tài khoản quản trị viên",
+      "setupHint": "Thiết lập tài khoản quản trị viên đầu tiên để bắt đầu.",
+      "username": "Tên người dùng",
+      "usernamePlaceholder": "Nhập tên người dùng",
+      "password": "Mật khẩu",
+      "passwordPlaceholder": "Nhập mật khẩu",
+      "confirmPassword": "Xác nhận mật khẩu",
+      "confirmPasswordPlaceholder": "Nhập lại mật khẩu",
+      "passwordMismatch": "Mật khẩu không khớp.",
+      "passwordTooShort": "Mật khẩu phải có ít nhất 6 ký tự.",
+      "createAdmin": "Tạo tài khoản quản trị viên"
     },
     "account": {
       "section": "Tài khoản",

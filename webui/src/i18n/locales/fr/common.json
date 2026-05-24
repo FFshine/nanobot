@@ -10,11 +10,21 @@
       "gatewayHint": "Assurez-vous que la gateway est en cours d’exécution (`nanobot gateway`) et que cette page est ouverte sur la même machine."
     },
     "auth": {
-      "title": "Authentification requise",
-      "hint": "Saisissez le secret configuré comme tokenIssueSecret dans la configuration de votre gateway.",
-      "placeholder": "Mot de passe",
+      "title": "Se connecter",
+      "hint": "Saisissez votre nom d'utilisateur et votre mot de passe.",
       "submit": "Se connecter",
-      "invalid": "Mot de passe invalide. Réessayez."
+      "invalid": "Identifiants invalides. Réessayez.",
+      "setupTitle": "Créer un compte administrateur",
+      "setupHint": "Configurez votre premier compte administrateur pour commencer.",
+      "username": "Nom d'utilisateur",
+      "usernamePlaceholder": "Saisissez votre nom d'utilisateur",
+      "password": "Mot de passe",
+      "passwordPlaceholder": "Saisissez votre mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "confirmPasswordPlaceholder": "Saisissez à nouveau le mot de passe",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "passwordTooShort": "Le mot de passe doit comporter au moins 6 caractères.",
+      "createAdmin": "Créer un compte administrateur"
     },
     "account": {
       "section": "Compte",

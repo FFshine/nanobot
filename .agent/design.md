@@ -2,9 +2,13 @@
 
 These rules govern architectural decisions. When adding a feature or fixing a bug, prefer paths that respect these boundaries.
 
+## Multi-tenant architecture
+
+The platform supports multiple users with isolated sessions. User identity flows through the auth system (`nanobot/auth/`) → JWT validation in `websocket.py` → user-scoped session keys (`channel:user_id:chat_id`). Session listing, media storage, and API endpoints all respect the current user's scope. The WebSocket channel (the only remaining channel after IM removal) embeds the HTTP server that serves the SPA and all REST endpoints.
+
 ## Core stays small; extend at the edges
 
-New capabilities should be added via `channels/`, `tools/`, skills, or MCP servers. The files `agent/loop.py` and `agent/runner.py` form the critical core path; changes there should be minimal and justified. If a feature can live in a channel adapter, a tool, or an external MCP server, it should not be inlined into the agent loop.
+New capabilities should be added via `tools/`, skills, or MCP servers. The files `agent/loop.py` and `agent/runner.py` form the critical core path; changes there should be minimal and justified. If a feature can live in a tool or an external MCP server, it should not be inlined into the agent loop.
 
 ## Less structure, more intelligence
 

@@ -10,11 +10,21 @@
       "gatewayHint": "Asegúrate de que la gateway esté en ejecución (`nanobot gateway`) y de que esta página esté abierta en la misma máquina."
     },
     "auth": {
-      "title": "Autenticación requerida",
-      "hint": "Introduce el secreto configurado como tokenIssueSecret en la configuración del gateway.",
-      "placeholder": "Contraseña",
-      "submit": "Conectar",
-      "invalid": "Contraseña no válida. Inténtalo de nuevo."
+      "title": "Iniciar sesión",
+      "hint": "Ingrese su usuario y contraseña.",
+      "submit": "Iniciar sesión",
+      "invalid": "Credenciales inválidas. Inténtelo de nuevo.",
+      "setupTitle": "Crear cuenta de administrador",
+      "setupHint": "Configure su primera cuenta de administrador para comenzar.",
+      "username": "Usuario",
+      "usernamePlaceholder": "Ingrese su usuario",
+      "password": "Contraseña",
+      "passwordPlaceholder": "Ingrese su contraseña",
+      "confirmPassword": "Confirmar contraseña",
+      "confirmPasswordPlaceholder": "Vuelva a ingresar la contraseña",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "passwordTooShort": "La contraseña debe tener al menos 6 caracteres.",
+      "createAdmin": "Crear cuenta de administrador"
     },
     "account": {
       "section": "Cuenta",

@@ -10,11 +10,21 @@
       "gatewayHint": "gateway（`nanobot gateway`）が起動しており、このページが同じマシン上で開かれていることを確認してください。"
     },
     "auth": {
-      "title": "認証が必要です",
-      "hint": "gateway 設定の tokenIssueSecret に指定されたシークレットを入力してください。",
-      "placeholder": "パスワード",
-      "submit": "接続",
-      "invalid": "パスワードが無効です。もう一度お試しください。"
+      "title": "ログイン",
+      "hint": "ユーザー名とパスワードを入力してください。",
+      "submit": "ログイン",
+      "invalid": "認証情報が無効です。もう一度お試しください。",
+      "setupTitle": "管理者アカウントを作成",
+      "setupHint": "最初の管理者アカウントを設定してください。",
+      "username": "ユーザー名",
+      "usernamePlaceholder": "ユーザー名を入力",
+      "password": "パスワード",
+      "passwordPlaceholder": "パスワードを入力",
+      "confirmPassword": "パスワードを確認",
+      "confirmPasswordPlaceholder": "パスワードを再入力",
+      "passwordMismatch": "パスワードが一致しません。",
+      "passwordTooShort": "パスワードは6文字以上必要です。",
+      "createAdmin": "管理者アカウントを作成"
     },
     "account": {
       "section": "アカウント",

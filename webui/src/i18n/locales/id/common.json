@@ -10,11 +10,21 @@
       "gatewayHint": "Pastikan gateway sedang berjalan (`nanobot gateway`) dan halaman ini dibuka pada mesin yang sama."
     },
     "auth": {
-      "title": "Autentikasi diperlukan",
-      "hint": "Masukkan secret yang dikonfigurasi sebagai tokenIssueSecret di konfigurasi gateway.",
-      "placeholder": "Kata sandi",
-      "submit": "Hubungkan",
-      "invalid": "Kata sandi tidak valid. Coba lagi."
+      "title": "Masuk",
+      "hint": "Masukkan nama pengguna dan kata sandi Anda.",
+      "submit": "Masuk",
+      "invalid": "Kredensial tidak valid. Coba lagi.",
+      "setupTitle": "Buat akun admin",
+      "setupHint": "Siapkan akun administrator pertama Anda untuk memulai.",
+      "username": "Nama pengguna",
+      "usernamePlaceholder": "Masukkan nama pengguna",
+      "password": "Kata sandi",
+      "passwordPlaceholder": "Masukkan kata sandi",
+      "confirmPassword": "Konfirmasi kata sandi",
+      "confirmPasswordPlaceholder": "Masukkan ulang kata sandi",
+      "passwordMismatch": "Kata sandi tidak cocok.",
+      "passwordTooShort": "Kata sandi minimal 6 karakter.",
+      "createAdmin": "Buat akun admin"
     },
     "account": {
       "section": "Akun",

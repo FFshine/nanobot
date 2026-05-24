@@ -42,3 +42,25 @@ Built-in skills live in `nanobot/skills/` (markdown + YAML frontmatter format). 
 ## Atomic Session Writes
 
 `agent/memory.py` writes `history.jsonl` atomically (temp file + fsync + rename + directory fsync). This guarantees durability across crashes. Do not replace this with a plain `open(..., "w")` write.
+
+## Session Key Format
+
+Session keys use the format `channel:user_id:chat_id` (e.g. `websocket:abc123:def456`). When parsing keys, handle both 3-part (user-scoped) and 2-part (legacy) formats. The `splitKey()` function in `webui/src/lib/api.ts` handles this:
+
+```ts
+// 3-part: channel:user_id:chat_id
+// 2-part (legacy): channel:chat_id
+```
+
+New code that constructs session keys must include the `user_id` segment (use `_session_key_for_user()` in Python, `getUser()?.id` in TypeScript).
+
+## Auth System
+
+- The auto-created admin password is printed to **console only** on first run. If lost, use `python3 -c "from nanobot.auth import get_user_by_username, update_user; u=get_user_by_username('admin'); update_user(u.id, password='newpass')"` to reset.
+- JWT tokens are invalidated on gateway restart (per-process random signing key).
+- The `websockets` library used for the HTTP server only handles GET requests. All auth endpoints use query parameters or headers rather than POST bodies.
+- `_parse_basic_auth()` extracts credentials from the `Authorization: Basic <base64>` header. Empty username+password falls through to legacy localhost mode.
+
+## IM Channels Removed
+
+All IM platform integrations (Telegram, Discord, Slack, WhatsApp, WeChat, WeCom, DingTalk, Feishu, Matrix, MoChat, MS Teams, Signal, QQ, Email) have been removed. The only remaining channel is `websocket.py`. Channel auto-discovery via `pkgutil` means no registry changes were needed — the files were simply deleted.

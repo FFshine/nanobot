@@ -27,10 +27,14 @@ def get_runtime_subdir(name: str) -> Path:
     return ensure_dir(get_data_dir() / name)
 
 
-def get_media_dir(channel: str | None = None) -> Path:
-    """Return the media directory, optionally namespaced per channel."""
+def get_media_dir(channel: str | None = None, user_id: str = "") -> Path:
+    """Return the media directory, optionally namespaced per channel and user."""
     base = get_runtime_subdir("media")
-    return ensure_dir(base / channel) if channel else base
+    if channel:
+        base = ensure_dir(base / channel)
+        if user_id:
+            base = ensure_dir(base / user_id)
+    return base
 
 
 def get_cron_dir() -> Path:

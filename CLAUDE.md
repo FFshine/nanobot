@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-nanobot is a lightweight, open-source AI agent framework written in Python with a React/TypeScript WebUI. It centers around a small agent loop that receives messages from chat channels, invokes an LLM provider, executes tools, and manages session memory.
+nanobot is an enterprise AI agent platform written in Python with a React/TypeScript WebUI. It centers around a small agent loop that receives messages from chat channels, invokes an LLM provider, executes tools, and manages session memory. Multi-user authentication (JWT + bcrypt) and per-user session isolation are built in.
 
 ## Development Commands
 
@@ -38,13 +38,14 @@ Messages flow through an async `MessageBus` (`nanobot/bus/queue.py`) that decoup
 
 - **Agent Loop** (`nanobot/agent/loop.py`, `runner.py`): The core processing engine. `AgentLoop` manages session keys, hooks, and context building. `AgentRunner` executes the multi-turn LLM conversation with tool execution.
 - **LLM Providers** (`nanobot/providers/`): Provider implementations (Anthropic, OpenAI-compatible, OpenAI Responses API, Azure, Bedrock, GitHub Copilot, OpenAI Codex, etc.) built on a common base (`base.py`). Includes image generation (`image_generation.py`) and audio transcription (`transcription.py`). `factory.py` and `registry.py` handle instantiation and model discovery.
-- **Channels** (`nanobot/channels/`): Platform integrations (Telegram, Discord, Slack, Feishu, Matrix, WhatsApp, QQ, WeChat, WeCom, DingTalk, Email, MoChat, MS Teams, WebSocket). `manager.py` discovers and coordinates them. Channels are auto-discovered via `pkgutil` scan + entry-point plugins.
+- **Channels** (`nanobot/channels/`): The WebSocket channel (`websocket.py`) serves the WebUI and embeds an HTTP server for REST endpoints (bootstrap, sessions, settings, auth). `manager.py` discovers and coordinates channels via `pkgutil` scan + entry-point plugins. IM channels (Telegram, Discord, Slack, etc.) have been removed.
 - **Tools** (`nanobot/agent/tools/`): Agent capabilities exposed to the LLM: filesystem (read/write/edit/list), shell execution (with sandbox backends), web search/fetch, MCP servers, cron, notebook editing, subagent spawning, long-running tasks / sustained goals (`long_task.py`), image generation, and self-modification. Tools are auto-discovered via `pkgutil` scan + entry-point plugins.
 - **Memory** (`nanobot/agent/memory.py`): Session history persistence with Dream two-phase memory consolidation. Uses atomic writes with fsync for durability.
 - **Session Management** (`nanobot/session/`): Per-session history, context compaction, TTL-based auto-compaction (`manager.py`), and sustained goal state tracking (`goal_state.py`).
 - **Config** (`nanobot/config/schema.py`, `loader.py`): Pydantic-based configuration loaded from `~/.nanobot/config.json`. Supports camelCase aliases for JSON compatibility.
 - **Bridge** (`bridge/`): TypeScript services (e.g. WhatsApp bridge) bundled into the wheel via `pyproject.toml` `force-include`.
 - **WebUI** (`webui/`): Vite-based React SPA that talks to the gateway over a WebSocket multiplex protocol. The dev server proxies `/api`, `/webui`, `/auth`, and WebSocket traffic to the gateway.
+- **Authentication** (`nanobot/auth/`): Multi-user auth system with SQLite-backed user store, bcrypt password hashing, and JWT tokens. Auto-creates a default admin on first run. Public API: `create_user()`, `authenticate_user()`, `get_user_by_id()`, `list_users()`, `update_user()`, `delete_user()`.
 - **API Server** (`nanobot/api/server.py`): OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/models`) for programmatic access.
 - **Command Router** (`nanobot/command/`): Slash command routing and built-in command handlers.
 - **Heartbeat** (`nanobot/heartbeat/`): Periodic agent wake-up service for scheduled task checking.
@@ -78,7 +79,11 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full two-branch model (`main`
 
 - Config schema: `nanobot/config/schema.py`
 - Provider base / new provider template: `nanobot/providers/base.py`
-- Channel base / new channel template: `nanobot/channels/base.py`
+- Channel base: `nanobot/channels/base.py`
+- WebSocket channel (HTTP + WS server): `nanobot/channels/websocket.py`
+- Auth module: `nanobot/auth/` (db, models, password, tokens)
+- Session key format: `channel:user_id:chat_id` (see `websocket.py:_session_key_for_user`)
 - Tool registry: `nanobot/agent/tools/registry.py`
 - WebUI dev proxy config: `webui/vite.config.ts`
+- WebUI auth module: `webui/src/lib/auth.ts`
 - Tests mirror the `nanobot/` package structure.

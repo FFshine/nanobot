@@ -48,16 +48,28 @@ vi.mock("@/hooks/useTheme", async () => {
   };
 });
 
-vi.mock("@/lib/bootstrap", () => ({
+vi.mock("@/lib/auth", () => ({
+  checkBootstrapWithoutAuth: vi.fn().mockResolvedValue({ has_users: true }),
   fetchBootstrap: vi.fn().mockResolvedValue({
-    token: "tok",
+    token: "jwt-tok",
+    ws_token: "tok",
     ws_path: "/",
     expires_in: 300,
+    model_name: "test-model",
+    has_users: true,
+    user: { id: "u1", username: "admin", displayName: "Admin", role: "admin", settings: {} },
   }),
+  setAuth: vi.fn(),
+  clearAuth: vi.fn(),
+  getToken: vi.fn(() => "jwt-tok"),
+  getUser: vi.fn(() => ({ id: "u1", username: "admin", displayName: "Admin", role: "admin", settings: {} })),
+  getAuthHeaders: vi.fn(() => ({ Authorization: "Bearer jwt-tok" })),
+  isAdmin: vi.fn(() => true),
+  setupAdmin: vi.fn(),
+}));
+
+vi.mock("@/lib/bootstrap", () => ({
   deriveWsUrl: vi.fn(() => "ws://test"),
-  loadSavedSecret: vi.fn(() => ""),
-  saveSecret: vi.fn(),
-  clearSavedSecret: vi.fn(),
 }));
 
 vi.mock("@/lib/nanobot-client", () => {
@@ -86,7 +98,8 @@ vi.mock("@/lib/nanobot-client", () => {
   return { NanobotClient: MockClient };
 });
 
-import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
+import { fetchBootstrap, checkBootstrapWithoutAuth } from "@/lib/auth";
+import { deriveWsUrl } from "@/lib/bootstrap";
 import App from "@/App";
 
 describe("App layout", () => {
@@ -102,9 +115,13 @@ describe("App layout", () => {
     runStatusHandlers.clear();
     localStorage.removeItem("nanobot-webui.sidebar.completed-runs.v1");
     vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
-      token: "tok",
+      token: "jwt-tok",
+      ws_token: "tok",
       ws_path: "/",
       expires_in: 300,
+      model_name: "test-model",
+      has_users: true,
+      user: { id: "u1", username: "admin", displayName: "Admin", role: "admin", settings: {} },
     });
     vi.mocked(deriveWsUrl).mockReset().mockReturnValue("ws://test");
     vi.stubGlobal(
@@ -140,6 +157,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -148,6 +166,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-b",
         channel: "websocket",
+        userId: "",
         chatId: "chat-b",
         createdAt: "2026-04-16T11:00:00Z",
         updatedAt: "2026-04-16T11:00:00Z",
@@ -192,6 +211,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -248,6 +268,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -256,6 +277,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-b",
         channel: "websocket",
+        userId: "",
         chatId: "chat-b",
         createdAt: "2026-04-16T11:00:00Z",
         updatedAt: "2026-04-16T11:00:00Z",
@@ -348,6 +370,7 @@ describe("App layout", () => {
       {
         key: "websocket:zulu",
         channel: "websocket",
+        userId: "",
         chatId: "zulu",
         createdAt: "2026-04-16T12:00:00Z",
         updatedAt: "2026-04-16T12:00:00Z",
@@ -357,6 +380,7 @@ describe("App layout", () => {
       {
         key: "websocket:new",
         channel: "websocket",
+        userId: "",
         chatId: "new",
         createdAt: "2026-04-15T12:00:00Z",
         updatedAt: "2026-04-15T12:00:00Z",
@@ -365,6 +389,7 @@ describe("App layout", () => {
       {
         key: "websocket:alpha",
         channel: "websocket",
+        userId: "",
         chatId: "alpha",
         createdAt: "2026-04-14T12:00:00Z",
         updatedAt: "2026-04-14T12:00:00Z",
@@ -421,6 +446,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -429,6 +455,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-b",
         channel: "websocket",
+        userId: "",
         chatId: "chat-b",
         createdAt: "2026-04-16T11:00:00Z",
         updatedAt: "2026-04-16T11:00:00Z",
@@ -468,6 +495,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -477,6 +505,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-b",
         channel: "websocket",
+        userId: "",
         chatId: "chat-b",
         createdAt: "2026-04-16T11:00:00Z",
         updatedAt: "2026-04-16T11:00:00Z",
@@ -504,6 +533,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -827,6 +857,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -835,6 +866,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-b",
         channel: "websocket",
+        userId: "",
         chatId: "chat-b",
         createdAt: "2026-04-16T11:00:00Z",
         updatedAt: "2026-04-16T11:00:00Z",
@@ -971,6 +1003,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-alpha",
         channel: "websocket",
+        userId: "",
         chatId: "chat-alpha",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -980,6 +1013,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-beta",
         channel: "websocket",
+        userId: "",
         chatId: "chat-beta",
         createdAt: "2026-04-15T10:00:00Z",
         updatedAt: "2026-04-15T10:00:00Z",
@@ -1038,6 +1072,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -1105,6 +1140,7 @@ describe("App layout", () => {
       {
         key: "websocket:chat-a",
         channel: "websocket",
+        userId: "",
         chatId: "chat-a",
         createdAt: "2026-04-16T10:00:00Z",
         updatedAt: "2026-04-16T10:00:00Z",
@@ -1160,14 +1196,22 @@ describe("App layout", () => {
     vi.useFakeTimers();
     vi.mocked(fetchBootstrap)
       .mockResolvedValueOnce({
-        token: "tok-1",
+        token: "jwt-1",
+        ws_token: "tok-1",
         ws_path: "/",
         expires_in: 30,
+        model_name: "test-model",
+        has_users: true,
+        user: { id: "u1", username: "admin", displayName: "Admin", role: "admin", settings: {} },
       })
       .mockResolvedValueOnce({
-        token: "tok-2",
+        token: "jwt-2",
+        ws_token: "tok-2",
         ws_path: "/",
         expires_in: 300,
+        model_name: "test-model",
+        has_users: true,
+        user: { id: "u1", username: "admin", displayName: "Admin", role: "admin", settings: {} },
       });
     vi.mocked(deriveWsUrl).mockImplementation(
       (_wsPath: string, token: string) => `ws://test?token=${token}`,

@@ -33,6 +33,8 @@ from websockets.http11 import Response
 from nanobot.agent.tools.mcp import request_mcp_reload
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.auth import authenticate_user, create_user, delete_user, get_user_by_id, get_user_count, list_users, update_user
+from nanobot.auth.tokens import create_token, verify_token
 from nanobot.channels.base import BaseChannel
 from nanobot.command.builtin import builtin_command_palette
 from nanobot.config.paths import get_media_dir, get_workspace_path
@@ -440,6 +442,21 @@ def _bearer_token(headers: Any) -> str | None:
     return None
 
 
+def _parse_basic_auth(headers: Any) -> tuple[str, str]:
+    """Extract username and password from Basic Auth header; returns ('', '') on failure."""
+    auth = headers.get("Authorization") or headers.get("authorization") or ""
+    if not auth.lower().startswith("basic "):
+        return "", ""
+    try:
+        decoded = base64.b64decode(auth[6:].strip()).decode("utf-8")
+        if ":" not in decoded:
+            return "", ""
+        username, password = decoded.split(":", 1)
+        return username, password
+    except (ValueError, binascii.Error, UnicodeDecodeError):
+        return "", ""
+
+
 def _is_websocket_upgrade(request: WsRequest) -> bool:
     """Detect an actual WS upgrade; plain HTTP GETs to the same path should fall through."""
     upgrade = request.headers.get("Upgrade") or request.headers.get("upgrade")
@@ -538,6 +555,50 @@ class WebSocketChannel(BaseChannel):
         # file, nothing else. The secret regenerates on restart so links
         # become self-expiring (callers just refresh the session list).
         self._media_secret: bytes = secrets.token_bytes(32)
+        # WS handshake token -> user_id mapping for user-aware connections
+        self._ws_token_user: dict[str, str] = {}
+        # connection -> user_id for the lifetime of a WS connection
+        self._conn_user: dict[Any, str] = {}
+        # chat_id -> user_id for session-scoping without connection
+        self._chat_user: dict[str, str] = {}
+
+    # -- Auth helpers ---------------------------------------------------------
+
+    def _check_jwt_auth(self, request: WsRequest) -> str | None:
+        """Validate JWT or API token; return user_id or None."""
+        # Try JWT (Bearer) first
+        token = _bearer_token(request.headers)
+        if token and not token.startswith("nbwt_"):
+            payload = verify_token(token)
+            return payload.user_id if payload else None
+        # Fall back to legacy nbwt_* token pool
+        if self._check_api_token(request):
+            return "__legacy__"
+        return None
+
+    def _get_user_from_request(self, request: WsRequest) -> dict | None:
+        """Extract and validate user identity from request; return user dict or None."""
+        user_id = self._check_jwt_auth(request)
+        if user_id is None:
+            return None
+        if user_id == "__legacy__":
+            users = list_users()
+            return users[0].to_public() if users else None
+        user = get_user_by_id(user_id)
+        return user.to_public() if user else None
+
+    def _require_auth(self, request: WsRequest) -> dict | None:
+        """Require valid auth; returns user dict or sends HTTP error response."""
+        return self._get_user_from_request(request)
+
+    def _require_admin(self, request: WsRequest) -> dict | None:
+        """Require admin auth."""
+        user = self._require_auth(request)
+        if user is None:
+            return None
+        if user.get("role") != "admin":
+            return None
+        return user
 
     # -- Subscription bookkeeping -------------------------------------------
 
@@ -545,6 +606,9 @@ class WebSocketChannel(BaseChannel):
         """Idempotently subscribe *connection* to *chat_id*."""
         self._subs.setdefault(chat_id, set()).add(connection)
         self._conn_chats.setdefault(connection, set()).add(chat_id)
+        user_id = self._conn_user.get(connection, "")
+        if user_id:
+            self._chat_user[chat_id] = user_id
 
     def _cleanup_connection(self, connection: Any) -> None:
         """Remove *connection* from every subscription set; safe to call multiple times."""
@@ -557,6 +621,7 @@ class WebSocketChannel(BaseChannel):
             if not subs:
                 self._subs.pop(cid, None)
         self._conn_default.pop(connection, None)
+        self._conn_user.pop(connection, None)
 
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
         """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
@@ -567,7 +632,9 @@ class WebSocketChannel(BaseChannel):
         """
         if self._session_manager is None:
             return
-        row = self._session_manager.read_session_file(f"websocket:{chat_id}")
+        user_id = self._chat_user.get(chat_id, "")
+        sk = self._session_key_for_user(chat_id, user_id)
+        row = self._session_manager.read_session_file(sk)
         meta = row.get("metadata", {}) if isinstance(row, dict) else {}
         if not isinstance(meta, dict):
             meta = {}
@@ -685,7 +752,18 @@ class WebSocketChannel(BaseChannel):
         if got == "/webui/bootstrap":
             return self._handle_bootstrap(connection, request)
 
-        # 3. REST handlers co-located with this channel (sessions, settings, …).
+        # 3. Auth endpoints
+        if got == "/api/auth/me":
+            return self._handle_auth_me(request)
+        if got == "/api/auth/setup":
+            return self._handle_auth_setup(request)
+        if got == "/api/auth/users":
+            return self._handle_auth_users_list(request)
+        m = re.match(r"^/api/auth/users/([^/]+)/delete$", got)
+        if m:
+            return self._handle_auth_user_delete(request, m.group(1))
+
+        # 4. REST handlers co-located with this channel (sessions, settings, …).
         if got == "/api/sessions":
             return self._handle_sessions_list(request)
 
@@ -771,6 +849,10 @@ class WebSocketChannel(BaseChannel):
                 client_id = client_id[:128]
             if not self.is_allowed(client_id):
                 return connection.respond(403, "Forbidden")
+            # Associate WS token with user for session-scoping
+            ws_token = _query_first(query, "token") or ""
+            user_id = self._ws_token_user.pop(ws_token, "")
+            self._conn_user[connection] = user_id
             return self._authorize_websocket_handshake(connection, query)
 
         # 5. Static SPA serving (only if a build directory was wired in).
@@ -804,58 +886,125 @@ class WebSocketChannel(BaseChannel):
                 self._api_tokens.pop(token_key, None)
 
     def _handle_bootstrap(self, connection: Any, request: Any) -> Response:
-        # When a secret is configured (token_issue_secret or static token),
-        # validate it regardless of source IP.  This secures deployments
-        # behind a reverse proxy where all connections appear as localhost.
-        secret = self.config.token_issue_secret.strip() or self.config.token.strip()
-        if secret:
-            if not _issue_route_secret_matches(request.headers, secret):
-                return _http_error(401, "Unauthorized")
-        elif not _is_localhost(connection):
-            # No secret configured: only allow localhost (local dev mode).
-            return _http_error(403, "bootstrap is localhost-only")
-        # Cap outstanding tokens to avoid runaway growth from a misbehaving client.
+        # Support Basic Auth (username:password) for user login.
+        # Also support legacy shared-secret mode for backward compat.
+        username, password = _parse_basic_auth(request.headers)
+        if username and password:
+            user = authenticate_user(username, password)
+            if user is None:
+                return _http_error(401, "Invalid credentials")
+        else:
+            # Legacy: shared secret or localhost-only
+            secret = self.config.token_issue_secret.strip() or self.config.token.strip()
+            if secret:
+                if not _issue_route_secret_matches(request.headers, secret):
+                    return _http_error(401, "Unauthorized")
+            elif not _is_localhost(connection):
+                return _http_error(403, "bootstrap is localhost-only")
+            user = None
+
         self._purge_expired_issued_tokens()
         self._purge_expired_api_tokens()
         if (
             len(self._issued_tokens) >= self._MAX_ISSUED_TOKENS
             or len(self._api_tokens) >= self._MAX_ISSUED_TOKENS
         ):
-            return _http_response(
-                json.dumps({"error": "too many outstanding tokens"}).encode("utf-8"),
-                status=429,
-                content_type="application/json; charset=utf-8",
+            return _http_json_response(
+                {"error": "too many outstanding tokens"}, status=429
             )
-        token = f"nbwt_{secrets.token_urlsafe(32)}"
+
+        ws_token = f"nbwt_{secrets.token_urlsafe(32)}"
         expiry = time.monotonic() + float(self.config.token_ttl_s)
-        # Same string registered in both pools: the WS handshake consumes one copy
-        # while the REST surface keeps validating the other until TTL expiry.
-        self._issued_tokens[token] = expiry
-        self._api_tokens[token] = expiry
-        return _http_json_response(
-            {
-                "token": token,
-                "ws_path": self._expected_path(),
-                "expires_in": self.config.token_ttl_s,
-                "model_name": _resolve_bootstrap_model_name(self._runtime_model_name),
-            }
-        )
+        self._issued_tokens[ws_token] = expiry
+        self._api_tokens[ws_token] = expiry
+
+        resp: dict[str, Any] = {
+            "ws_token": ws_token,
+            "ws_path": self._expected_path(),
+            "expires_in": self.config.token_ttl_s,
+            "model_name": _resolve_bootstrap_model_name(self._runtime_model_name),
+            "has_users": get_user_count() > 0,
+        }
+        if user is not None:
+            jwt_token = create_token(user.id, user.username, user.role)
+            resp["token"] = jwt_token
+            resp["user"] = user.to_public()
+            self._ws_token_user[ws_token] = user.id
+        return _http_json_response(resp)
+
+    # -- Auth endpoint handlers ------------------------------------------------
+
+    def _handle_auth_me(self, request: WsRequest) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        return _http_json_response({"user": user})
+
+    def _handle_auth_setup(self, request: WsRequest) -> Response:
+        """Create the first admin user when no users exist."""
+        if get_user_count() > 0:
+            return _http_error(403, "Setup only available when no users exist")
+        query = _parse_query(request.path)
+        username = (_query_first(query, "username") or "").strip()
+        password = (_query_first(query, "password") or "").strip()
+        if not username or not password:
+            return _http_error(400, "username and password are required")
+        if len(password) < 6:
+            return _http_error(400, "Password must be at least 6 characters")
+        try:
+            user = create_user(username, password, display_name=username, role="admin")
+            return _http_json_response({"ok": True, "user": user.to_public()})
+        except Exception:
+            return _http_error(409, "Username already exists")
+
+    def _handle_auth_users_list(self, request: WsRequest) -> Response:
+        admin = self._require_admin(request)
+        if admin is None:
+            return _http_error(403, "Admin only")
+        users = [u.to_public() for u in list_users()]
+        return _http_json_response({"users": users})
+
+    def _handle_auth_user_delete(self, request: WsRequest, target_id: str) -> Response:
+        admin = self._require_admin(request)
+        if admin is None:
+            return _http_error(403, "Admin only")
+        if admin["id"] == target_id:
+            return _http_error(400, "Cannot delete yourself")
+        ok = delete_user(target_id)
+        if not ok:
+            return _http_error(404, "User not found")
+        return _http_json_response({"ok": True})
+
+    def _session_key_for_user(self, chat_id: str, user_id: str = "") -> str:
+        """Build a user-scoped session key."""
+        if user_id:
+            return f"websocket:{user_id}:{chat_id}"
+        return f"websocket:{chat_id}"
+
+    def _user_from_connection(self, connection: Any) -> str:
+        return self._conn_user.get(connection, "")
+
+    # -- Session / settings handlers ------------------------------------------
 
     def _handle_sessions_list(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
+        user = self._require_auth(request)
+        if user is None:
             return _http_error(401, "Unauthorized")
         if self._session_manager is None:
             return _http_error(503, "session manager unavailable")
+        user_id = user["id"]
         sessions = self._session_manager.list_sessions()
-        # Sidebar/chat listing for WS-backed sessions only — CLI / Slack / etc.
-        # keys are not intended for resume over this HTTP surface.
         cleaned = []
         for s in sessions:
             key = s.get("key")
             if not (isinstance(key, str) and key.startswith("websocket:")):
                 continue
+            # Only show sessions owned by this user
+            prefix = f"websocket:{user_id}:"
+            if not key.startswith(prefix):
+                continue
             row = {k: v for k, v in s.items() if k != "path"}
-            chat_id = key.split(":", 1)[1]
+            chat_id = key.split(":", 2)[-1]
             started_at = websocket_turn_wall_started_at(chat_id)
             if started_at is not None:
                 row["run_started_at"] = started_at
@@ -1026,13 +1175,18 @@ class WebSocketChannel(BaseChannel):
         return key.startswith("websocket:")
 
     def _handle_session_messages(self, request: WsRequest, key: str) -> Response:
-        if not self._check_api_token(request):
+        user = self._require_auth(request)
+        if user is None:
             return _http_error(401, "Unauthorized")
         if self._session_manager is None:
             return _http_error(503, "session manager unavailable")
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
+        # Require ownership: session key must start with websocket:<user_id>:
+        prefix = f"websocket:{user['id']}:"
+        if not decoded_key.startswith(prefix):
+            return _http_error(403, "Forbidden")
         # Only ``websocket:…`` sessions are listed/served here — same boundary as
         # ``/api/sessions``. Block handcrafted URLs from probing CLI / Slack / etc.
         if not self._is_websocket_channel_session_key(decoded_key):
@@ -1051,11 +1205,15 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(data)
 
     def _handle_webui_thread_get(self, request: WsRequest, key: str) -> Response:
-        if not self._check_api_token(request):
+        user = self._require_auth(request)
+        if user is None:
             return _http_error(401, "Unauthorized")
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
+        prefix = f"websocket:{user['id']}:"
+        if not decoded_key.startswith(prefix):
+            return _http_error(403, "Forbidden")
         if not self._is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
         data = build_webui_thread_response(
@@ -1068,7 +1226,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(data)
 
     def _try_append_webui_transcript(self, chat_id: str, wire: dict[str, Any]) -> None:
-        sk = f"websocket:{chat_id}"
+        user_id = self._chat_user.get(chat_id, "")
+        sk = self._session_key_for_user(chat_id, user_id)
         try:
             dup = json.loads(json.dumps(wire, ensure_ascii=False))
             append_transcript_object(sk, dup)
@@ -1099,6 +1258,7 @@ class WebSocketChannel(BaseChannel):
         session_key: str | None = None,
         is_dm: bool = False,
     ) -> None:
+        user_id = self._chat_user.get(chat_id, "")
         meta = metadata or {}
         if meta.get("webui"):
             user_obj: dict[str, Any] = {
@@ -1115,6 +1275,8 @@ class WebSocketChannel(BaseChannel):
             if isinstance(mcp_presets, list) and mcp_presets:
                 user_obj["mcp_presets"] = mcp_presets
             self._try_append_webui_transcript(chat_id, user_obj)
+        if not session_key and user_id:
+            session_key = self._session_key_for_user(chat_id, user_id)
         await super()._handle_message(
             sender_id,
             chat_id,
@@ -1259,15 +1421,17 @@ class WebSocketChannel(BaseChannel):
         )
 
     def _handle_session_delete(self, request: WsRequest, key: str) -> Response:
-        if not self._check_api_token(request):
+        user = self._require_auth(request)
+        if user is None:
             return _http_error(401, "Unauthorized")
         if self._session_manager is None:
             return _http_error(503, "session manager unavailable")
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        # Same boundary as ``_handle_session_messages``: mutations apply only to
-        # websocket-channel sessions; deletion unlinks local JSONL — keep scope narrow.
+        prefix = f"websocket:{user['id']}:"
+        if not decoded_key.startswith(prefix):
+            return _http_error(403, "Forbidden")
         if not self._is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
         deleted = self._session_manager.delete_session(decoded_key)
@@ -1455,6 +1619,7 @@ class WebSocketChannel(BaseChannel):
     def _save_envelope_media(
         self,
         media: list[Any],
+        user_id: str = "",
     ) -> tuple[list[str], str | None]:
         """Decode and persist ``media`` items from a ``message`` envelope.
 
@@ -1480,7 +1645,7 @@ class WebSocketChannel(BaseChannel):
         if video_count > _MAX_VIDEOS_PER_MESSAGE:
             return [], "too_many_videos"
 
-        media_dir = get_media_dir("websocket")
+        media_dir = get_media_dir("websocket", user_id=user_id) if user_id else get_media_dir("websocket")
         paths: list[str] = []
 
         def _abort(reason: str) -> tuple[list[str], str]:
@@ -1562,7 +1727,9 @@ class WebSocketChannel(BaseChannel):
                         detail="image_rejected", reason="malformed",
                     )
                     return
-                media_paths, reason = self._save_envelope_media(raw_media)
+                media_paths, reason = self._save_envelope_media(
+                    raw_media, user_id=self._conn_user.get(connection, "")
+                )
                 if reason is not None:
                     await self._send_event(
                         connection, "error",

@@ -14,12 +14,13 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { ThemeProvider, useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import {
-  clearSavedSecret,
-  deriveWsUrl,
+  checkBootstrapWithoutAuth,
+  clearAuth,
   fetchBootstrap,
-  loadSavedSecret,
-  saveSecret,
-} from "@/lib/bootstrap";
+  setAuth,
+  setupAdmin,
+} from "@/lib/auth";
+import { deriveWsUrl } from "@/lib/bootstrap";
 import { deriveTitle } from "@/lib/format";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
@@ -29,6 +30,7 @@ import { Input } from "@/components/ui/input";
 
 type BootState =
   | { status: "loading" }
+  | { status: "setup" }
   | { status: "error"; message: string }
   | { status: "auth"; failed?: boolean }
   | {
@@ -62,22 +64,41 @@ function tokenRefreshDelayMs(expiresAt: number): number {
 }
 
 function AuthForm({
+  mode,
   failed,
-  onSecret,
+  onSubmit,
 }: {
+  mode: "login" | "setup";
   failed: boolean;
-  onSecret: (secret: string) => void;
+  onSubmit: (username: string, password: string) => void;
 }) {
   const { t } = useTranslation();
-  const [value, setValue] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [setupError, setSetupError] = useState("");
+
+  const isSetup = mode === "setup";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const secret = value.trim();
-    if (!secret) return;
+    const u = username.trim();
+    const p = password.trim();
+    if (!u || !p) return;
+    if (isSetup) {
+      if (p !== confirmPassword.trim()) {
+        setSetupError(t("app.auth.passwordMismatch"));
+        return;
+      }
+      if (p.length < 6) {
+        setSetupError(t("app.auth.passwordTooShort"));
+        return;
+      }
+    }
+    setSetupError("");
     setSubmitting(true);
-    onSecret(secret);
+    onSubmit(u, p);
   };
 
   return (
@@ -87,28 +108,72 @@ function AuthForm({
         className="flex w-full max-w-sm flex-col gap-4"
       >
         <div className="flex flex-col items-center gap-1 text-center">
-          <p className="text-lg font-semibold">{t("app.auth.title")}</p>
-          <p className="text-sm text-muted-foreground">{t("app.auth.hint")}</p>
+          <p className="text-lg font-semibold">
+            {isSetup ? t("app.auth.setupTitle") : t("app.auth.title")}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {isSetup ? t("app.auth.setupHint") : t("app.auth.hint")}
+          </p>
         </div>
-        {failed && (
+        {failed && !isSetup && (
           <p className="text-center text-sm text-destructive">
             {t("app.auth.invalid")}
           </p>
         )}
-        <Input
-          type="password"
-          placeholder={t("app.auth.placeholder")}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          disabled={submitting}
-          autoFocus
-        />
+        {setupError && (
+          <p className="text-center text-sm text-destructive">{setupError}</p>
+        )}
+        <div className="flex flex-col gap-2">
+          <label htmlFor="auth-username" className="text-sm font-medium">
+            {t("app.auth.username")}
+          </label>
+          <Input
+            id="auth-username"
+            type="text"
+            placeholder={t("app.auth.usernamePlaceholder")}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            disabled={submitting}
+            autoFocus
+            autoComplete="username"
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="auth-password" className="text-sm font-medium">
+            {t("app.auth.password")}
+          </label>
+          <Input
+            id="auth-password"
+            type="password"
+            placeholder={t("app.auth.passwordPlaceholder")}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={submitting}
+            autoComplete={isSetup ? "new-password" : "current-password"}
+          />
+        </div>
+        {isSetup && (
+          <div className="flex flex-col gap-2">
+            <label htmlFor="auth-confirm" className="text-sm font-medium">
+              {t("app.auth.confirmPassword")}
+            </label>
+            <Input
+              id="auth-confirm"
+              type="password"
+              placeholder={t("app.auth.confirmPasswordPlaceholder")}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={submitting}
+              autoComplete="new-password"
+            />
+          </div>
+        )}
         <Button
           type="submit"
           className="w-full"
-          disabled={!value.trim() || submitting}
+          disabled={!username.trim() || !password.trim() || submitting || (isSetup && !confirmPassword.trim())}
         >
-          {t("app.auth.submit")}
+          {isSetup ? t("app.auth.createAdmin") : t("app.auth.submit")}
         </Button>
       </form>
     </div>
@@ -152,31 +217,39 @@ function writeCompletedRunChatIds(chatIds: Set<string>): void {
 export default function App() {
   const { t } = useTranslation();
   const [state, setState] = useState<BootState>({ status: "loading" });
-  const bootstrapSecretRef = useRef("");
+  const credentialsRef = useRef<{ username: string; password: string } | null>(null);
 
-  const bootstrapWithSecret = useCallback(
-    (secret: string) => {
+  const bootstrapWithCredentials = useCallback(
+    (username: string, password: string) => {
       let cancelled = false;
       (async () => {
         setState({ status: "loading" });
         try {
-          const boot = await fetchBootstrap("", secret);
+          const boot = await fetchBootstrap(username, password);
           if (cancelled) return;
-          if (secret) saveSecret(secret);
-          const url = deriveWsUrl(boot.ws_path, boot.token);
+          credentialsRef.current = { username, password };
+          if (boot.token && boot.user) {
+            setAuth(boot.token, boot.user);
+          }
+          const url = deriveWsUrl(boot.ws_path, boot.ws_token);
           let client: NanobotClient;
           client = new NanobotClient({
             url,
             onReauth: async () => {
               try {
-                const refreshed = await fetchBootstrap("", bootstrapSecretRef.current);
-                const refreshedUrl = deriveWsUrl(refreshed.ws_path, refreshed.token);
+                const creds = credentialsRef.current;
+                if (!creds) return null;
+                const refreshed = await fetchBootstrap(creds.username, creds.password);
+                if (refreshed.token && refreshed.user) {
+                  setAuth(refreshed.token, refreshed.user);
+                }
+                const refreshedUrl = deriveWsUrl(refreshed.ws_path, refreshed.ws_token);
                 const tokenExpiresAt = bootstrapTokenExpiresAt(refreshed.expires_in);
                 setState((current) =>
                   current.status === "ready" && current.client === client
                     ? {
                         ...current,
-                        token: refreshed.token,
+                        token: refreshed.token ?? current.token,
                         tokenExpiresAt,
                         modelName: refreshed.model_name ?? current.modelName,
                       }
@@ -188,19 +261,18 @@ export default function App() {
               }
             },
           });
-          bootstrapSecretRef.current = secret;
           client.connect();
           setState({
             status: "ready",
             client,
-            token: boot.token,
+            token: boot.token ?? "",
             tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
             modelName: boot.model_name ?? null,
           });
         } catch (e) {
           if (cancelled) return;
           const msg = (e as Error).message;
-          if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
+          if (msg.includes("HTTP 401") || msg.includes("HTTP 403") || msg.includes("Invalid credentials")) {
             setState({ status: "auth", failed: true });
           } else {
             setState({ status: "error", message: msg });
@@ -219,15 +291,20 @@ export default function App() {
     const client = state.client;
     const timer = window.setTimeout(async () => {
       try {
-        const boot = await fetchBootstrap("", bootstrapSecretRef.current);
-        const url = deriveWsUrl(boot.ws_path, boot.token);
+        const creds = credentialsRef.current;
+        if (!creds) return;
+        const boot = await fetchBootstrap(creds.username, creds.password);
+        if (boot.token && boot.user) {
+          setAuth(boot.token, boot.user);
+        }
+        const url = deriveWsUrl(boot.ws_path, boot.ws_token);
         const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
         client.updateUrl(url);
         setState((current) =>
           current.status === "ready" && current.client === client
             ? {
                 ...current,
-                token: boot.token,
+                token: boot.token ?? current.token,
                 tokenExpiresAt,
                 modelName: boot.model_name ?? current.modelName,
               }
@@ -235,7 +312,7 @@ export default function App() {
         );
       } catch (e) {
         const msg = (e as Error).message;
-        if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
+        if (msg.includes("HTTP 401") || msg.includes("HTTP 403") || msg.includes("Invalid credentials")) {
           setState({ status: "auth", failed: true });
         }
       }
@@ -244,9 +321,62 @@ export default function App() {
   }, [state]);
 
   useEffect(() => {
-    const saved = loadSavedSecret();
-    return bootstrapWithSecret(saved);
-  }, [bootstrapWithSecret]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const { has_users } = await checkBootstrapWithoutAuth();
+        if (cancelled) return;
+        if (!has_users) {
+          setState({ status: "setup" });
+          return;
+        }
+        // Try legacy auto-bootstrap (works on localhost or with shared secret).
+        // If it fails with 401/403, fall through to the login form.
+        try {
+          bootstrapWithCredentials("", "");
+        } catch {
+          if (cancelled) return;
+          setState({ status: "auth" });
+        }
+      } catch {
+        if (cancelled) return;
+        setState({ status: "auth" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrapWithCredentials]);
+
+  const handleSetup = useCallback(
+    async (username: string, password: string) => {
+      try {
+        await setupAdmin(username, password);
+      } catch (e) {
+        setState({ status: "error", message: (e as Error).message });
+        return;
+      }
+      bootstrapWithCredentials(username, password);
+    },
+    [bootstrapWithCredentials],
+  );
+
+  const handleModelNameChange = useCallback((modelName: string | null) => {
+    setState((current) =>
+      current.status === "ready" ? { ...current, modelName } : current,
+    );
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    setState((current) => {
+      if (current.status === "ready") {
+        current.client.close();
+      }
+      return { status: "auth" as const };
+    });
+    clearAuth();
+    credentialsRef.current = null;
+  }, []);
 
   if (state.status === "loading") {
     return (
@@ -263,11 +393,22 @@ export default function App() {
       </div>
     );
   }
+
+  if (state.status === "setup") {
+    return (
+      <AuthForm
+        mode="setup"
+        failed={false}
+        onSubmit={handleSetup}
+      />
+    );
+  }
   if (state.status === "auth") {
     return (
       <AuthForm
+        mode="login"
         failed={!!state.failed}
-        onSecret={(s) => bootstrapWithSecret(s)}
+        onSubmit={(username, password) => bootstrapWithCredentials(username, password)}
       />
     );
   }
@@ -284,20 +425,6 @@ export default function App() {
       </div>
     );
   }
-
-  const handleModelNameChange = (modelName: string | null) => {
-    setState((current) =>
-      current.status === "ready" ? { ...current, modelName } : current,
-    );
-  };
-
-  const handleLogout = () => {
-    if (state.status === "ready") {
-      state.client.close();
-    }
-    clearSavedSecret();
-    setState({ status: "auth" });
-  };
 
   return (
     <ClientProvider
@@ -434,7 +561,9 @@ function Shell({
   const onCreateChat = useCallback(async () => {
     try {
       const chatId = await createChat();
-      setActiveKey(`websocket:${chatId}`);
+      const userId = sessions.find((s) => s.chatId === chatId)?.userId ?? "";
+      const key = userId ? `websocket:${userId}:${chatId}` : `websocket:${chatId}`;
+      setActiveKey(key);
       setView("chat");
       setMobileSidebarOpen(false);
       return chatId;
@@ -442,7 +571,7 @@ function Shell({
       console.error("Failed to create chat", e);
       return null;
     }
-  }, [createChat]);
+  }, [createChat, sessions]);
 
   const onNewChat = useCallback(() => {
     setActiveKey(null);

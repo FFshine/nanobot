@@ -56,10 +56,15 @@ function mcpValuesHeader(values: Record<string, unknown>): HeadersInit | undefin
   return { "X-Nanobot-MCP-Values": JSON.stringify(payload) };
 }
 
-function splitKey(key: string): { channel: string; chatId: string } {
-  const idx = key.indexOf(":");
-  if (idx === -1) return { channel: "", chatId: key };
-  return { channel: key.slice(0, idx), chatId: key.slice(idx + 1) };
+function splitKey(key: string): { channel: string; userId: string; chatId: string } {
+  const parts = key.split(":");
+  if (parts.length >= 3) {
+    return { channel: parts[0], userId: parts[1], chatId: parts.slice(2).join(":") };
+  }
+  if (parts.length === 2) {
+    return { channel: parts[0], userId: "", chatId: parts[1] };
+  }
+  return { channel: "", userId: "", chatId: key };
 }
 
 export async function listSessions(
