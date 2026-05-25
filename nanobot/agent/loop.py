@@ -250,6 +250,8 @@ class AgentLoop:
         self._user_memory_stores: dict[str, MemoryStore] = {}
         self._user_consolidators: dict[str, Consolidator] = {}
         self._user_dreams: dict[str, Dream] = {}
+        # Per-user CronService instances for cron isolation (lazily created)
+        self._user_cron_services: dict[str, "CronService"] = {}
         self._consolidation_ratio = consolidation_ratio
         self._webui_turns = WebuiTurnCoordinator(
             bus=self.bus,
@@ -472,6 +474,7 @@ class AgentLoop:
             bus=self.bus,
             subagent_manager=self.subagents,
             cron_service=self.cron_service,
+            cron_resolver=lambda sk: self._cron_service_for(sk),
             sessions=self.sessions,
             provider_snapshot_loader=self._provider_snapshot_loader,
             image_generation_provider_configs=self._image_generation_provider_configs,
@@ -696,6 +699,26 @@ class AgentLoop:
             dream.annotate_line_ages = self.dream.annotate_line_ages
             self._user_dreams[user_id] = dream
         return self._user_dreams[user_id]
+
+    def _get_user_cron_service(self, user_id: str) -> "CronService":
+        """Return the per-user CronService for *user_id*."""
+        if user_id not in self._user_cron_services:
+            from nanobot.cron.service import CronService
+
+            ws = get_workspace_path(user_id=user_id)
+            sync_workspace_templates(ws, silent=True)
+            svc = CronService(ws / "cron" / "jobs.json")
+            self._user_cron_services[user_id] = svc
+            # Start the per-user cron loop in the background
+            self._schedule_background(svc.start())
+        return self._user_cron_services[user_id]
+
+    def _cron_service_for(self, session_key: str) -> "CronService":
+        """Return the CronService to use for *session_key*."""
+        user_id = self._user_id_from_session_key(session_key)
+        if user_id:
+            return self._get_user_cron_service(user_id)
+        return self.cron_service
 
     async def run_dream_for_all_users(self) -> None:
         """Run Dream for every known user (called by the dream cron job)."""

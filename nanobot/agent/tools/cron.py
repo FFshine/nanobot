@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.context import ContextAware, RequestContext
@@ -58,8 +58,14 @@ _CRON_PARAMETERS = tool_parameters_schema(
 class CronTool(Tool, ContextAware):
     """Tool to schedule reminders and recurring tasks."""
 
-    def __init__(self, cron_service: CronService, default_timezone: str = "UTC"):
+    def __init__(
+        self,
+        cron_service: CronService,
+        default_timezone: str = "UTC",
+        cron_resolver: Callable[[str], CronService] | None = None,
+    ):
         self._cron = cron_service
+        self._cron_resolver = cron_resolver
         self._default_timezone = default_timezone
         self._channel: ContextVar[str] = ContextVar("cron_channel", default="")
         self._chat_id: ContextVar[str] = ContextVar("cron_chat_id", default="")
@@ -73,7 +79,19 @@ class CronTool(Tool, ContextAware):
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
-        return cls(cron_service=ctx.cron_service, default_timezone=ctx.timezone)
+        return cls(
+            cron_service=ctx.cron_service,
+            default_timezone=ctx.timezone,
+            cron_resolver=ctx.cron_resolver,
+        )
+
+    def _get_cron(self) -> CronService:
+        """Resolve the correct CronService for the current user at execution time."""
+        if self._cron_resolver is not None:
+            sk = self._session_key.get()
+            if sk:
+                return self._cron_resolver(sk)
+        return self._cron
 
     def set_context(self, ctx: RequestContext) -> None:
         """Set the current session context for delivery."""
@@ -206,7 +224,7 @@ class CronTool(Tool, ContextAware):
         else:
             return "Error: either every_seconds, cron_expr, or at is required"
 
-        job = self._cron.add_job(
+        job = self._get_cron().add_job(
             name=name or message[:30],
             schedule=schedule,
             message=message,
@@ -260,7 +278,7 @@ class CronTool(Tool, ContextAware):
         return "System-managed internal job."
 
     def _list_jobs(self) -> str:
-        jobs = self._cron.list_jobs()
+        jobs = self._get_cron().list_jobs()
         if not jobs:
             return "No scheduled jobs."
         lines = []
@@ -277,11 +295,11 @@ class CronTool(Tool, ContextAware):
     def _remove_job(self, job_id: str | None) -> str:
         if not job_id:
             return "Error: job_id is required for remove"
-        result = self._cron.remove_job(job_id)
+        result = self._get_cron().remove_job(job_id)
         if result == "removed":
             return f"Removed job {job_id}"
         if result == "protected":
-            job = self._cron.get_job(job_id)
+            job = self._get_cron().get_job(job_id)
             if job and job.name == "dream":
                 return (
                     "Cannot remove job `dream`.\n"
