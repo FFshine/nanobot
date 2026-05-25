@@ -523,6 +523,7 @@ export function ThreadShell({
           onStop={stop}
           runStartedAt={runStartedAt}
           goalState={goalState}
+          imageGenAvailable={settings?.image_generation?.enabled ?? false}
         />
       ) : (
         <ThreadComposer
@@ -545,6 +546,7 @@ export function ThreadShell({
           onImageModeChange={setHeroImageMode}
           runStartedAt={runStartedAt}
           goalState={goalState}
+          imageGenAvailable={settings?.image_generation?.enabled ?? false}
         />
       )}
       {showHeroComposer ? quickActions : null}

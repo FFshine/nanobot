@@ -4062,16 +4062,21 @@ function CronSettings({
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const list = jobs ?? [];
+  const [deleting, setDeleting] = useState<string | null>(null);
   const formatTime = (ms: number | null) => {
     if (ms == null) return "—";
     return new Date(ms).toLocaleString();
   };
-  const handleDelete = async (jobId: string) => {
+  const handleDelete = async (jobId: string, name: string) => {
+    if (!window.confirm(t("settings.cron.deleteConfirm", { defaultValue: "Delete cron job '{name}'?", name }))) return;
+    setDeleting(jobId);
     try {
       await deleteCronJob(jobId, token);
       onChanged();
     } catch {
       // silently ignore
+    } finally {
+      setDeleting(null);
     }
   };
   return (
@@ -4093,13 +4098,21 @@ function CronSettings({
                     <div className="text-[12px] font-medium">{j.enabled ? tx("settings.values.enabled", "Active") : tx("settings.values.disabled", "Paused")}</div>
                     <div className="text-[12px] text-muted-foreground">{j.next_run_ms ? formatTime(j.next_run_ms) : "—"}</div>
                   </div>
-                  <button
-                    className="text-[11px] text-destructive hover:underline cursor-pointer"
-                    onClick={() => handleDelete(j.id)}
-                    aria-label={`Delete cron job ${j.name}`}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8"
+                    disabled={deleting === j.id}
+                    onClick={() => handleDelete(j.id, j.name)}
+                    aria-label={tx("settings.actions.delete", "Delete")}
                   >
-                    {tx("settings.cron.delete", "Delete")}
-                  </button>
+                    {deleting === j.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
                 </div>
               </div>
             ))

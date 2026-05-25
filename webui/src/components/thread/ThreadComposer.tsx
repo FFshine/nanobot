@@ -90,6 +90,8 @@ interface ThreadComposerProps {
   mcpPresets?: McpPresetInfo[];
   imageMode?: boolean;
   onImageModeChange?: (enabled: boolean) => void;
+  /** When false, hides the image generation toggle regardless of imageMode. */
+  imageGenAvailable?: boolean;
   onStop?: () => void;
   /** Unix seconds from server; turn elapsed timer above input while set. */
   runStartedAt?: number | null;
@@ -472,6 +474,7 @@ export function ThreadComposer({
   mcpPresets = [],
   imageMode: controlledImageMode,
   onImageModeChange,
+  imageGenAvailable = true,
   onStop,
   runStartedAt = null,
   goalState,
@@ -1212,6 +1215,7 @@ export function ThreadComposer({
             >
               <Plus className={cn(isHero ? "h-5 w-5" : "h-4 w-4")} />
             </Button>
+            {imageGenAvailable ? (
             <div ref={aspectControlRef} className="relative flex items-center gap-1">
               <Button
                 type="button"
@@ -1265,6 +1269,7 @@ export function ThreadComposer({
                 />
               ) : null}
             </div>
+            ) : null}
             {modelLabel ? (
               <ComposerModelBadge
                 label={modelLabel}
