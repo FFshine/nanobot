@@ -17,15 +17,18 @@ import {
   checkBootstrapWithoutAuth,
   clearAuth,
   fetchBootstrap,
+  fetchBootstrapWithToken,
+  getToken,
   getUser,
   setAuth,
   setupAdmin,
 } from "@/lib/auth";
+import { onApiUnauthorized } from "@/lib/api";
 import { deriveWsUrl } from "@/lib/bootstrap";
 import { deriveTitle } from "@/lib/format";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
-import type { ChatSummary } from "@/lib/types";
+import type { BootPayload, ChatSummary } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -219,6 +222,22 @@ export default function App() {
   const { t } = useTranslation();
   const [state, setState] = useState<BootState>({ status: "loading" });
   const credentialsRef = useRef<{ username: string; password: string } | null>(null);
+  const stateRef = useRef<BootState>({ status: "loading" });
+  stateRef.current = state;
+
+  // Global 401 handler: any API call that gets 401 redirects to login.
+  useEffect(() => {
+    onApiUnauthorized(() => {
+      clearAuth();
+      credentialsRef.current = null;
+      const s = stateRef.current;
+      if (s.status === "ready") {
+        s.client.close();
+      }
+      setState({ status: "auth" });
+    });
+    return () => onApiUnauthorized(null);
+  }, []);
 
   const bootstrapWithCredentials = useCallback(
     (username: string, password: string) => {
@@ -292,9 +311,18 @@ export default function App() {
     const client = state.client;
     const timer = window.setTimeout(async () => {
       try {
+        let boot: BootPayload;
         const creds = credentialsRef.current;
-        if (!creds) return;
-        const boot = await fetchBootstrap(creds.username, creds.password);
+        if (creds) {
+          boot = await fetchBootstrap(creds.username, creds.password);
+        } else {
+          const storedToken = getToken();
+          if (!storedToken) {
+            setState({ status: "auth" });
+            return;
+          }
+          boot = await fetchBootstrapWithToken(storedToken);
+        }
         if (boot.token && boot.user) {
           setAuth(boot.token, boot.user);
         }
@@ -314,6 +342,8 @@ export default function App() {
       } catch (e) {
         const msg = (e as Error).message;
         if (msg.includes("HTTP 401") || msg.includes("HTTP 403") || msg.includes("Invalid credentials")) {
+          clearAuth();
+          credentialsRef.current = null;
           setState({ status: "auth", failed: true });
         }
       }
@@ -331,8 +361,53 @@ export default function App() {
           setState({ status: "setup" });
           return;
         }
-        // Try legacy auto-bootstrap (works on localhost or with shared secret).
-        // If it fails with 401/403, fall through to the login form.
+        // Try stored JWT token first (survives page reload).
+        const storedToken = getToken();
+        if (storedToken) {
+          try {
+            const boot = await fetchBootstrapWithToken(storedToken);
+            if (cancelled) return;
+            if (boot.token && boot.user) {
+              setAuth(boot.token, boot.user);
+            }
+            // Note: boot.ws_token is generated fresh by the server —
+            // we get a new WS token on every bootstrap call.
+            const url = deriveWsUrl(boot.ws_path, boot.ws_token);
+            const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
+            const client = new NanobotClient({
+              url,
+              onReauth: async () => {
+                try {
+                  const stored = getToken();
+                  if (!stored) return null;
+                  const refreshed = await fetchBootstrapWithToken(stored);
+                  if (refreshed.token && refreshed.user) {
+                    setAuth(refreshed.token, refreshed.user);
+                  }
+                  return deriveWsUrl(refreshed.ws_path, refreshed.ws_token);
+                } catch {
+                  return null;
+                }
+              },
+            });
+            client.connect();
+            setState({
+              status: "ready",
+              client,
+              token: boot.token ?? "",
+              tokenExpiresAt,
+              modelName: boot.model_name ?? null,
+            });
+            return;
+          } catch {
+            // Stored token is invalid/expired — clear and show login.
+            clearAuth();
+            if (cancelled) return;
+            setState({ status: "auth" });
+            return;
+          }
+        }
+        // No stored token — try legacy auto-bootstrap (localhost / shared secret).
         try {
           bootstrapWithCredentials("", "");
         } catch {

@@ -978,22 +978,27 @@ class WebSocketChannel(BaseChannel):
                 self._api_tokens.pop(token_key, None)
 
     def _handle_bootstrap(self, connection: Any, request: Any) -> Response:
-        # Support Basic Auth (username:password) for user login.
-        # Also support legacy shared-secret mode for backward compat.
+        # Support Basic Auth (username:password) for user login,
+        # JWT Bearer token (for session refresh), and legacy shared-secret mode.
+        user = None
         username, password = _parse_basic_auth(request.headers)
         if username and password:
             user = authenticate_user(username, password)
             if user is None:
                 return _http_error(401, "Invalid credentials")
         else:
-            # Legacy: shared secret or localhost-only
-            secret = self.config.token_issue_secret.strip() or self.config.token.strip()
-            if secret:
-                if not _issue_route_secret_matches(request.headers, secret):
-                    return _http_error(401, "Unauthorized")
-            elif not _is_localhost(connection):
-                return _http_error(403, "bootstrap is localhost-only")
-            user = None
+            # Try JWT Bearer token for session refresh (no password needed)
+            user_id = self._check_jwt_auth(request)
+            if user_id and user_id != "__legacy__":
+                user = get_user_by_id(user_id)
+            if user is None:
+                # Legacy: shared secret or localhost-only
+                secret = self.config.token_issue_secret.strip() or self.config.token.strip()
+                if secret:
+                    if not _issue_route_secret_matches(request.headers, secret):
+                        return _http_error(401, "Unauthorized")
+                elif not _is_localhost(connection):
+                    return _http_error(403, "bootstrap is localhost-only")
 
         self._purge_expired_issued_tokens()
         self._purge_expired_api_tokens()

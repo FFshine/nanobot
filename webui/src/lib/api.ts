@@ -22,6 +22,13 @@ export class ApiError extends Error {
   }
 }
 
+let _onUnauthorized: (() => void) | null = null;
+
+/** Register a callback invoked whenever any API call receives a 401. */
+export function onApiUnauthorized(cb: (() => void) | null): void {
+  _onUnauthorized = cb;
+}
+
 async function request<T>(
   url: string,
   token: string,
@@ -36,6 +43,9 @@ async function request<T>(
     credentials: "same-origin",
   });
   if (!res.ok) {
+    if (res.status === 401 && _onUnauthorized) {
+      _onUnauthorized();
+    }
     throw new ApiError(res.status, `HTTP ${res.status}`);
   }
   return (await res.json()) as T;

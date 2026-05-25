@@ -81,6 +81,20 @@ export async function fetchBootstrap(
   return resp.json();
 }
 
+export async function fetchBootstrapWithToken(token: string): Promise<BootPayload> {
+  const resp = await fetch("/webui/bootstrap", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    if (resp.status === 401) {
+      throw new Error("Invalid credentials");
+    }
+    throw new Error(`Bootstrap failed: ${resp.status}`);
+  }
+  return resp.json();
+}
+
 export async function checkBootstrapWithoutAuth(): Promise<{ has_users: boolean }> {
   const resp = await fetch("/webui/bootstrap");
   if (!resp.ok) return { has_users: true };
