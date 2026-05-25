@@ -148,12 +148,15 @@ class MessageTool(Tool, ContextAware):
 
     def _resolve_media(self, media: list[str]) -> list[str]:
         """Resolve local media attachments and enforce workspace restriction when enabled."""
+        from nanobot.agent.tools.context import is_workspace_restricted_for_user
+
+        restrict = is_workspace_restricted_for_user(self._restrict_to_workspace)
         resolved: list[str] = []
-        allowed_dir = self._workspace if self._restrict_to_workspace else None
+        allowed_dir = self._workspace if restrict else None
         for p in media:
             if p.startswith(("http://", "https://")):
                 resolved.append(p)
-            elif not self._restrict_to_workspace:
+            elif not restrict:
                 path = Path(p).expanduser()
                 resolved.append(p if path.is_absolute() else str(self._workspace / path))
             else:

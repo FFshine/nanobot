@@ -121,13 +121,17 @@ class CliAppsTool(Tool):
     ) -> str:
         manager = CliAppManager(workspace=self.workspace, runtime=self.runtime)
         try:
+            from nanobot.agent.tools.context import is_workspace_restricted_for_user
+
             return manager.run(
                 name,
                 args=args or [],
                 json_output=bool(json),
                 working_dir=working_dir,
                 timeout=timeout,
-                restrict_to_workspace=self.restrict_to_workspace,
+                restrict_to_workspace=is_workspace_restricted_for_user(
+                    self.restrict_to_workspace
+                ),
             )
         except CliAppError as exc:
             return f"Error: {exc.message}"

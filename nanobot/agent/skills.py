@@ -18,6 +18,30 @@ _STRIP_SKILL_FRONTMATTER = re.compile(
 )
 
 
+def link_builtin_skills(workspace: Path) -> None:
+    """Symlink builtin skill dirs into ``{workspace}/skills/``.
+
+    Restricted users can only access paths inside their workspace, so
+    builtin skills must appear within that boundary.  Symlinks are created
+    only when the user does not already have a skill directory with the
+    same name (user skills shadow builtin ones).
+
+    Safe to call multiple times — existing links and user dirs are
+    silently skipped.
+    """
+    if not BUILTIN_SKILLS_DIR.is_dir():
+        return
+    skills_dir = workspace / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for builtin_dir in BUILTIN_SKILLS_DIR.iterdir():
+        if not builtin_dir.is_dir():
+            continue
+        link_path = skills_dir / builtin_dir.name
+        if link_path.exists():
+            continue
+        link_path.symlink_to(builtin_dir)
+
+
 class SkillsLoader:
     """
     Loader for agent skills.

@@ -19,11 +19,11 @@ from nanobot.agent import model_presets as preset_helpers
 from nanobot.agent.autocompact import AutoCompact
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.hook import AgentHook, CompositeHook
-from nanobot.agent.memory import Consolidator, Dream
+from nanobot.agent.memory import Consolidator, Dream, MemoryStore
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.context import bind_workspace
+from nanobot.agent.tools.context import bind_user_role, bind_workspace
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -1213,6 +1213,14 @@ class AgentLoop:
         user_id = self._user_id_from_session_key(key)
         if user_id:
             bind_workspace(get_workspace_path(user_id=user_id))
+            try:
+                from nanobot.auth import get_user_by_id
+
+                user = get_user_by_id(user_id)
+                if user is not None:
+                    bind_user_role(user.role)
+            except Exception:
+                pass
 
         if msg.channel == "system":
             return await self._process_system_message(

@@ -8,6 +8,7 @@ and register it in _BACKENDS below.
 import shlex
 from pathlib import Path
 
+from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.config.paths import get_media_dir
 
 
@@ -39,6 +40,7 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
         "--dir", str(ws),                 # recreate workspace mount point
         "--bind", str(ws), str(ws),
         "--ro-bind-try", str(media), str(media),  # read-only access to media
+        "--ro-bind-try", str(BUILTIN_SKILLS_DIR), str(BUILTIN_SKILLS_DIR),
         "--chdir", sandbox_cwd,
         "--", "sh", "-c", command,
     ]

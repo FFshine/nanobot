@@ -62,10 +62,17 @@ class _FsTool(Tool):
         return current_file_states(self._fallback_file_states)
 
     def _resolve(self, path: str, *, for_write: bool = False) -> Path:
+        # Enforce workspace restriction for non-admin users at execution
+        # time (role is bound per-turn, not at tool-creation time).
+        from nanobot.agent.tools.context import is_workspace_restricted_for_user
+
+        allowed_dir = self._allowed_dir
+        if allowed_dir is None and is_workspace_restricted_for_user(False):
+            allowed_dir = self._workspace
         return resolve_workspace_path(
             path,
             self._workspace,
-            self._allowed_dir,
+            allowed_dir,
             self._extra_allowed_dirs,
             for_write=for_write,
         )

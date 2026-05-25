@@ -1,12 +1,13 @@
 """Runtime context for tool construction."""
 from __future__ import annotations
 
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol, runtime_checkable
 
 _current_workspace: ContextVar[Path | None] = ContextVar("nanobot_workspace", default=None)
+_current_user_role: ContextVar[str] = ContextVar("nanobot_user_role", default="")
 
 
 def current_workspace() -> Path | None:
@@ -17,6 +18,33 @@ def current_workspace() -> Path | None:
 def bind_workspace(workspace: Path) -> None:
     """Set the per-turn workspace for all tools in this async task."""
     _current_workspace.set(workspace)
+
+
+def current_user_role() -> str:
+    """Return the per-turn user role, or empty string if not set."""
+    return _current_user_role.get()
+
+
+def bind_user_role(role: str) -> Token:
+    """Set the per-turn user role for all tools in this async task.
+
+    Returns a Token that can be passed to ``_current_user_role.reset()``
+    to restore the previous value.
+    """
+    return _current_user_role.set(role)
+
+
+def is_workspace_restricted_for_user(config_restrict: bool) -> bool:
+    """Return whether workspace restriction should be enforced.
+
+    Non-admin users are always restricted regardless of the global config
+    flag. Admins and unauthenticated sessions (legacy single-user mode)
+    respect the config flag.
+    """
+    role = current_user_role()
+    if role and role != "admin":
+        return True
+    return config_restrict
 
 
 @dataclass(frozen=True)

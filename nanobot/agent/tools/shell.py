@@ -193,6 +193,16 @@ class ExecTool(Tool):
         self.allowed_env_keys = allowed_env_keys or []
         self._session_manager = session_manager or DEFAULT_EXEC_SESSION_MANAGER
 
+    def _effective_restrict(self) -> bool:
+        """Return True if workspace restriction should be enforced.
+
+        Combines the static config flag with a per-turn role check so that
+        non-admin users are always restricted regardless of the global setting.
+        """
+        from nanobot.agent.tools.context import is_workspace_restricted_for_user
+
+        return is_workspace_restricted_for_user(self.restrict_to_workspace)
+
     @property
     def name(self) -> str:
         return "exec"
@@ -362,7 +372,7 @@ class ExecTool(Tool):
         # this, a caller can pass working_dir="/etc" and then all absolute
         # paths under /etc would pass the _guard_command check that anchors
         # on cwd.
-        if self.restrict_to_workspace and effective_working_dir:
+        if self._effective_restrict() and effective_working_dir:
             try:
                 requested = Path(cwd).expanduser().resolve()
                 workspace_root = Path(effective_working_dir).expanduser().resolve()
@@ -561,7 +571,7 @@ class ExecTool(Tool):
             # The runner turns this marker into a non-retryable security hint.
             return "Error: Command blocked by safety guard (internal/private URL detected)"
 
-        if self.restrict_to_workspace:
+        if self._effective_restrict():
             if "..\\" in cmd or "../" in cmd:
                 return (
                     "Error: Command blocked by safety guard (path traversal detected)"

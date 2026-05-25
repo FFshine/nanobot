@@ -603,6 +603,12 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     _write(None, workspace / "memory" / "history.jsonl")
     (workspace / "skills").mkdir(exist_ok=True)
 
+    # Symlink builtin skills so restricted users can access them within
+    # their workspace boundary.
+    from nanobot.agent.skills import link_builtin_skills
+
+    link_builtin_skills(workspace)
+
     if added and not silent:
         from rich.console import Console
 
