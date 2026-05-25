@@ -75,13 +75,13 @@ def rewrite_local_markdown_images(
     return _MARKDOWN_LOCAL_IMAGE_RE.sub(replace, text)
 
 
-def webui_transcript_path(session_key: str) -> Path:
+def webui_transcript_path(session_key: str, user_id: str = "") -> Path:
     stem = SessionManager.safe_key(session_key)
-    return get_webui_dir() / f"{stem}.jsonl"
+    return get_webui_dir(user_id=user_id) / f"{stem}.jsonl"
 
 
-def read_transcript_lines(session_key: str) -> list[dict[str, Any]]:
-    path = webui_transcript_path(session_key)
+def read_transcript_lines(session_key: str, user_id: str = "") -> list[dict[str, Any]]:
+    path = webui_transcript_path(session_key, user_id=user_id)
     if not path.is_file():
         return []
     size = path.stat().st_size
@@ -108,12 +108,12 @@ def read_transcript_lines(session_key: str) -> list[dict[str, Any]]:
     return lines_out
 
 
-def append_transcript_object(session_key: str, obj: dict[str, Any]) -> None:
+def append_transcript_object(session_key: str, obj: dict[str, Any], user_id: str = "") -> None:
     raw = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
     if len(raw.encode("utf-8")) > _MAX_TRANSCRIPT_FILE_BYTES:
         msg = "webui transcript line too large"
         raise ValueError(msg)
-    path = webui_transcript_path(session_key)
+    path = webui_transcript_path(session_key, user_id=user_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = raw + "\n"
     with open(path, "a", encoding="utf-8") as f:
@@ -122,8 +122,8 @@ def append_transcript_object(session_key: str, obj: dict[str, Any]) -> None:
         os.fsync(f.fileno())
 
 
-def delete_webui_transcript(session_key: str) -> bool:
-    path = webui_transcript_path(session_key)
+def delete_webui_transcript(session_key: str, user_id: str = "") -> bool:
+    path = webui_transcript_path(session_key, user_id=user_id)
     if not path.is_file():
         return False
     try:
@@ -725,9 +725,10 @@ def build_webui_thread_response(
     *,
     augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
+    user_id: str = "",
 ) -> dict[str, Any] | None:
     """Return a payload compatible with ``WebuiThreadPersistedPayload``."""
-    lines = read_transcript_lines(session_key)
+    lines = read_transcript_lines(session_key, user_id=user_id)
     if not lines:
         return None
     msgs = replay_transcript_to_ui_messages(

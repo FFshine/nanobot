@@ -17,6 +17,7 @@ import {
   checkBootstrapWithoutAuth,
   clearAuth,
   fetchBootstrap,
+  getUser,
   setAuth,
   setupAdmin,
 } from "@/lib/auth";
@@ -561,7 +562,10 @@ function Shell({
   const onCreateChat = useCallback(async () => {
     try {
       const chatId = await createChat();
-      const userId = sessions.find((s) => s.chatId === chatId)?.userId ?? "";
+      // Use getUser() to compute the key identically to createChat().
+      // sessions state is stale here (React hasn't flushed setSessions yet),
+      // so sessions.find() would miss the newly inserted row.
+      const userId = getUser()?.id ?? "";
       const key = userId ? `websocket:${userId}:${chatId}` : `websocket:${chatId}`;
       setActiveKey(key);
       setView("chat");
@@ -571,7 +575,7 @@ function Shell({
       console.error("Failed to create chat", e);
       return null;
     }
-  }, [createChat, sessions]);
+  }, [createChat]);
 
   const onNewChat = useCallback(() => {
     setActiveKey(null);

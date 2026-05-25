@@ -1,8 +1,22 @@
 """Runtime context for tool construction."""
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Protocol, runtime_checkable
+
+_current_workspace: ContextVar[Path | None] = ContextVar("nanobot_workspace", default=None)
+
+
+def current_workspace() -> Path | None:
+    """Return the per-turn workspace override, or None."""
+    return _current_workspace.get()
+
+
+def bind_workspace(workspace: Path) -> None:
+    """Set the per-turn workspace for all tools in this async task."""
+    _current_workspace.set(workspace)
 
 
 @dataclass(frozen=True)

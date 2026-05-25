@@ -666,3 +666,147 @@ def update_image_generation_settings(query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     return settings_payload(requires_restart=changed)
+
+
+# ---------------------------------------------------------------------------
+# Profile / Skills / Cron — visibility + user-skill management endpoints
+# ---------------------------------------------------------------------------
+
+_SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$", re.IGNORECASE)
+
+
+def _validate_user_skill_name(name: str) -> str:
+    """Validate and normalize a user-skill name; raises on invalid input."""
+    name = (name or "").strip()
+    if not name or not _SKILL_NAME_RE.match(name):
+        raise WebUISettingsError("invalid skill name")
+    return name
+
+
+def _user_skill_dir(workspace_path: str, name: str) -> Path:
+    """Return the directory for a user skill, without checking existence."""
+    from pathlib import Path
+
+    return Path(workspace_path) / "skills" / _validate_user_skill_name(name)
+
+
+def delete_user_skill(workspace_path: str, name: str) -> bool:
+    """Remove a user-skill directory.  Returns True if something was deleted."""
+    import shutil
+    from pathlib import Path
+
+    skill_dir = _user_skill_dir(workspace_path, name)
+    if not skill_dir.is_dir():
+        return False
+    # Refuse to touch anything outside the workspace skills dir
+    skills_root = (Path(workspace_path) / "skills").resolve()
+    if not str(skill_dir.resolve()).startswith(str(skills_root)):
+        raise WebUISettingsError("invalid skill path")
+    shutil.rmtree(skill_dir)
+    return True
+
+
+def read_user_skill_content(workspace_path: str, name: str) -> str:
+    """Return the SKILL.md content of a user skill, or empty string."""
+    from pathlib import Path
+
+    skill_file = _user_skill_dir(workspace_path, name) / "SKILL.md"
+    try:
+        return skill_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def update_user_skill_content(workspace_path: str, name: str, content: str) -> None:
+    """Write new SKILL.md content for a user skill."""
+    from pathlib import Path
+
+    skill_file = _user_skill_dir(workspace_path, name) / "SKILL.md"
+    if not skill_file.parent.is_dir():
+        raise WebUISettingsError("skill not found", status=404)
+    skills_root = (Path(workspace_path) / "skills").resolve()
+    if not str(skill_file.resolve()).startswith(str(skills_root)):
+        raise WebUISettingsError("invalid skill path")
+    skill_file.write_text(content, encoding="utf-8")
+
+
+def profile_files_payload(workspace_path: str) -> dict[str, Any]:
+    """Return SOUL.md, USER.md, and MEMORY.md contents from *workspace_path*."""
+    from pathlib import Path
+
+    ws = Path(workspace_path)
+
+    def _read(name: str) -> str:
+        try:
+            return (ws / name).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return ""
+
+    return {
+        "soul": _read("SOUL.md"),
+        "user": _read("USER.md"),
+        "memory": _read("memory/MEMORY.md"),
+    }
+
+
+def skills_list_payload(workspace_path: str) -> dict[str, Any]:
+    """Return available skills (builtin + workspace)."""
+    from pathlib import Path
+
+    from nanobot.agent.skills import SkillsLoader
+
+    loader = SkillsLoader(Path(workspace_path))
+    skills = []
+    for skill in loader.list_skills(filter_unavailable=False):
+        skills.append({
+            "name": skill.get("name", ""),
+            "description": skill.get("description", ""),
+            "source": skill.get("source", ""),
+        })
+    return {"skills": skills}
+
+
+def cron_list_payload(user_id: str, workspace_path: str) -> dict[str, Any]:
+    """Return cron jobs for *user_id* from the per-user cron store."""
+    from pathlib import Path
+
+    store_path = Path(workspace_path) / "cron" / "jobs.json"
+    jobs: list[dict[str, Any]] = []
+    if store_path.is_file():
+        try:
+            from nanobot.cron.service import CronService
+            svc = CronService(store_path)
+            for j in svc.list_jobs():
+                next_ms = j.state.next_run_at_ms if j.state else None
+                last_status = j.state.last_status if j.state else None
+                jobs.append({
+                    "id": j.id,
+                    "name": j.name,
+                    "enabled": j.enabled,
+                    "schedule_kind": j.schedule.kind if j.schedule else "",
+                    "schedule": _describe_cron_schedule(j),
+                    "next_run_ms": next_ms,
+                    "last_status": last_status,
+                })
+        except Exception:
+            pass
+    return {"cron_jobs": jobs}
+
+
+def _describe_cron_schedule(job: Any) -> str:
+    s = job.schedule
+    if s is None:
+        return ""
+    if s.kind == "at":
+        from datetime import datetime, timezone
+        dt = datetime.fromtimestamp(s.at_ms / 1000, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    if s.kind == "every":
+        mins = s.every_ms / 60000
+        if mins >= 60:
+            hrs = mins / 60
+            return f"Every {hrs:.1f}h"
+        return f"Every {mins:.0f}min"
+    if s.kind == "cron":
+        return f"Cron: {s.expr or ''}"
+    return str(s.kind)

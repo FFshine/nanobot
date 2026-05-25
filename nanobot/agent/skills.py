@@ -32,6 +32,15 @@ class SkillsLoader:
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
         self.disabled_skills = disabled_skills or set()
 
+    @property
+    def _effective_workspace_skills(self) -> Path:
+        """Return the per-user workspace skills dir when available, else the global one."""
+        from nanobot.agent.tools.context import current_workspace
+
+        if (user_ws := current_workspace()) is not None:
+            return user_ws / "skills"
+        return self.workspace_skills
+
     def _skill_entries_from_dir(self, base: Path, source: str, *, skip_names: set[str] | None = None) -> list[dict[str, str]]:
         if not base.exists():
             return []
@@ -58,7 +67,7 @@ class SkillsLoader:
         Returns:
             List of skill info dicts with 'name', 'path', 'source'.
         """
-        skills = self._skill_entries_from_dir(self.workspace_skills, "workspace")
+        skills = self._skill_entries_from_dir(self._effective_workspace_skills, "user")
         workspace_names = {entry["name"] for entry in skills}
         if self.builtin_skills and self.builtin_skills.exists():
             skills.extend(
@@ -82,7 +91,7 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
-        roots = [self.workspace_skills]
+        roots = [self._effective_workspace_skills]
         if self.builtin_skills:
             roots.append(self.builtin_skills)
         for root in roots:
@@ -110,7 +119,7 @@ class SkillsLoader:
 
     def build_skills_summary(self, exclude: set[str] | None = None) -> str:
         """
-        Build a summary of all skills (name, description, path, availability).
+        Build a summary of all skills grouped by source (builtin / user).
 
         This is used for progressive loading - the agent can read the full
         skill content using read_file when needed.
@@ -125,21 +134,34 @@ class SkillsLoader:
         if not all_skills:
             return ""
 
-        lines: list[str] = []
+        builtin: list[dict[str, str]] = []
+        user: list[dict[str, str]] = []
         for entry in all_skills:
-            skill_name = entry["name"]
-            if exclude and skill_name in exclude:
-                continue
-            meta = self._get_skill_meta(skill_name)
-            available = self._check_requirements(meta)
-            desc = self._get_skill_description(skill_name)
-            if available:
-                lines.append(f"- **{skill_name}** — {desc}  `{entry['path']}`")
-            else:
-                missing = self._get_missing_requirements(meta)
-                suffix = f" (unavailable: {missing})" if missing else " (unavailable)"
-                lines.append(f"- **{skill_name}** — {desc}{suffix}  `{entry['path']}`")
-        return "\n".join(lines)
+            (builtin if entry.get("source") == "builtin" else user).append(entry)
+
+        def _format_block(skills: list[dict[str, str]], heading: str) -> str:
+            lines: list[str] = [f"### {heading}"]
+            for entry in skills:
+                skill_name = entry["name"]
+                if exclude and skill_name in exclude:
+                    continue
+                meta = self._get_skill_meta(skill_name)
+                available = self._check_requirements(meta)
+                desc = self._get_skill_description(skill_name)
+                if available:
+                    lines.append(f"- **{skill_name}** — {desc}  `{entry['path']}`")
+                else:
+                    missing = self._get_missing_requirements(meta)
+                    suffix = f" (unavailable: {missing})" if missing else " (unavailable)"
+                    lines.append(f"- **{skill_name}** — {desc}{suffix}  `{entry['path']}`")
+            return "\n".join(lines)
+
+        blocks: list[str] = []
+        if builtin:
+            blocks.append(_format_block(builtin, "Builtin Skills"))
+        if user:
+            blocks.append(_format_block(user, "User Skills"))
+        return "\n\n".join(blocks)
 
     def _get_missing_requirements(self, skill_meta: dict) -> str:
         """Get a description of missing requirements."""

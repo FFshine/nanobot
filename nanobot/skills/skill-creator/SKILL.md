@@ -266,22 +266,22 @@ At this point, it is time to actually create the skill.
 
 Skip this step only if the skill being developed already exists, and iteration or packaging is needed. In this case, continue to the next step.
 
-When creating a new skill from scratch, always run the `init_skill.py` script. The script conveniently generates a new template skill directory that automatically includes everything a skill requires, making the skill creation process much more efficient and reliable.
+**CRITICAL: Never create skills with write_file or mkdir.** Always run the `init_skill.py` script. The script generates a proper SKILL.md template with frontmatter, TODO placeholders, and optional resource directories (scripts, references, assets). Creating a bare SKILL.md by hand skips the template structure the agent needs.
 
-For `nanobot`, custom skills should live under the active workspace `skills/` directory so they can be discovered automatically at runtime (for example, `<workspace>/skills/my-skill/SKILL.md`).
+For `nanobot`, custom skills live under the active workspace `skills/` directory so they are discovered automatically (<workspace>/skills/<skill-name>/SKILL.md). The workspace path is shown at the top of every turn in the system context.
 
-Usage:
+The `init_skill.py` script is located alongside this skill file, at `<skill-creator-dir>/scripts/init_skill.py`. Find the full path by listing the skill-creator directory, then run it with Python:
 
 ```bash
-scripts/init_skill.py <skill-name> --path <output-directory> [--resources scripts,references,assets] [--examples]
+python <path-to-skill-creator>/scripts/init_skill.py <skill-name> --path <workspace>/skills [--resources scripts,references,assets] [--examples]
 ```
 
 Examples:
 
 ```bash
-scripts/init_skill.py my-skill --path ./workspace/skills
-scripts/init_skill.py my-skill --path ./workspace/skills --resources scripts,references
-scripts/init_skill.py my-skill --path ./workspace/skills --resources scripts --examples
+# The workspace path is shown in the system prompt. Use it directly:
+python .../init_skill.py my-skill --path /home/user/.nanobot/workspace/skills
+python .../init_skill.py my-skill --path /home/user/.nanobot/workspace/skills --resources scripts,references --examples
 ```
 
 The script:

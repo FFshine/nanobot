@@ -109,7 +109,10 @@ class ContextBuilder:
 
     def _get_identity(self, channel: str | None = None) -> str:
         """Get the core identity section."""
-        workspace_path = str(self.workspace.expanduser().resolve())
+        from nanobot.agent.tools.context import current_workspace
+
+        effective_workspace = current_workspace() or self.workspace
+        workspace_path = str(effective_workspace.expanduser().resolve())
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
@@ -155,10 +158,13 @@ class ContextBuilder:
 
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
+        from nanobot.agent.tools.context import current_workspace
+
+        effective_workspace = current_workspace() or self.workspace
         parts = []
 
         for filename in self.BOOTSTRAP_FILES:
-            file_path = self.workspace / filename
+            file_path = effective_workspace / filename
             if file_path.exists():
                 content = file_path.read_text(encoding="utf-8")
                 parts.append(f"## {filename}\n\n{content}")

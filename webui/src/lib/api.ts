@@ -338,3 +338,137 @@ export async function updateImageGenerationSettings(
     token,
   );
 }
+
+// -- Profile / Skills / Cron visibility endpoints ---------------------------
+
+export interface ProfileData {
+  soul: string;
+  user: string;
+  memory: string;
+}
+
+export async function fetchProfile(
+  token: string,
+  base: string = "",
+): Promise<ProfileData> {
+  return request<ProfileData>(`${base}/api/settings/profile`, token);
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  source: string;
+}
+
+export interface SkillsListPayload {
+  skills: SkillInfo[];
+}
+
+export async function fetchSkills(
+  token: string,
+  base: string = "",
+): Promise<SkillsListPayload> {
+  return request<SkillsListPayload>(`${base}/api/settings/skills`, token);
+}
+
+export async function deleteSkill(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(
+    `${base}/api/settings/skills/${encodeURIComponent(name)}/delete`,
+    token,
+  );
+}
+
+export interface SkillContentPayload {
+  name: string;
+  content: string;
+}
+
+export async function fetchSkillContent(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<SkillContentPayload> {
+  return request<SkillContentPayload>(
+    `${base}/api/settings/skills/${encodeURIComponent(name)}/content`,
+    token,
+  );
+}
+
+export async function updateSkillContent(
+  token: string,
+  name: string,
+  content: string,
+  base: string = "",
+): Promise<{ ok: boolean }> {
+  const query = new URLSearchParams();
+  query.set("content", content);
+  return request<{ ok: boolean }>(
+    `${base}/api/settings/skills/${encodeURIComponent(name)}/update?${query}`,
+    token,
+  );
+}
+
+export interface CronJobInfo {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule_kind: string;
+  schedule: string;
+  next_run_ms: number | null;
+  last_status: string | null;
+}
+
+export interface CronListPayload {
+  cron_jobs: CronJobInfo[];
+}
+
+export async function fetchCronJobs(
+  token: string,
+  base: string = "",
+): Promise<CronListPayload> {
+  return request<CronListPayload>(`${base}/api/settings/cron`, token);
+}
+
+// -- User management (admin only) -------------------------------------------
+
+export interface UsersListPayload {
+  users: Array<{
+    id: string;
+    username: string;
+    displayName: string;
+    role: "admin" | "user";
+  }>;
+}
+
+export async function fetchUsers(
+  token: string,
+  base: string = "",
+): Promise<UsersListPayload> {
+  return request<UsersListPayload>(`${base}/api/auth/users`, token);
+}
+
+export async function createUser(
+  token: string,
+  username: string,
+  password: string,
+  role: string,
+  base: string = "",
+): Promise<{ ok: boolean; user: { id: string; username: string; displayName: string; role: string } }> {
+  const query = new URLSearchParams();
+  query.set("username", username);
+  query.set("password", password);
+  query.set("role", role);
+  return request(`${base}/api/auth/users/create?${query}`, token);
+}
+
+export async function deleteUser(
+  token: string,
+  userId: string,
+  base: string = "",
+): Promise<{ ok: boolean }> {
+  return request(`${base}/api/auth/users/${encodeURIComponent(userId)}/delete`, token);
+}

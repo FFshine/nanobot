@@ -31,31 +31,29 @@ from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
 from nanobot.agent.tools.mcp import request_mcp_reload
+from nanobot.auth import (
+    authenticate_user,
+    create_user,
+    delete_user,
+    get_user_by_id,
+    get_user_count,
+    list_users,
+)
+from nanobot.auth.tokens import create_token, verify_token
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.auth import authenticate_user, create_user, delete_user, get_user_by_id, get_user_count, list_users, update_user
-from nanobot.auth.tokens import create_token, verify_token
 from nanobot.channels.base import BaseChannel
 from nanobot.command.builtin import builtin_command_palette
 from nanobot.config.paths import get_media_dir, get_workspace_path
 from nanobot.config.schema import Base
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
-from nanobot.utils.helpers import safe_filename
+from nanobot.utils.helpers import safe_filename, sync_workspace_templates
 from nanobot.utils.media_decode import (
     FileSizeExceeded,
     save_base64_data_url,
 )
 from nanobot.utils.subagent_channel_display import scrub_subagent_messages_for_channel
-from nanobot.webui.settings_api import (
-    WebUISettingsError,
-    create_model_configuration,
-    settings_payload,
-    update_agent_settings,
-    update_image_generation_settings,
-    update_provider_settings,
-    update_web_search_settings,
-)
 from nanobot.webui.cli_apps_api import (
     cli_apps_action,
     cli_apps_payload,
@@ -64,6 +62,15 @@ from nanobot.webui.cli_apps_api import (
 from nanobot.webui.mcp_presets_api import (
     mcp_presets_settings_action,
     normalize_mcp_preset_mentions,
+)
+from nanobot.webui.settings_api import (
+    WebUISettingsError,
+    create_model_configuration,
+    settings_payload,
+    update_agent_settings,
+    update_image_generation_settings,
+    update_provider_settings,
+    update_web_search_settings,
 )
 from nanobot.webui.sidebar_state import (
     read_webui_sidebar_state,
@@ -561,6 +568,44 @@ class WebSocketChannel(BaseChannel):
         self._conn_user: dict[Any, str] = {}
         # chat_id -> user_id for session-scoping without connection
         self._chat_user: dict[str, str] = {}
+        # Per-user component factories — lazily created on first access
+        self._user_workspaces: dict[str, Path] = {}
+        self._user_session_managers: dict[str, "SessionManager"] = {}
+        self._user_cron_services: dict[str, "CronService"] = {}
+
+    # -- Per-user component helpers -------------------------------------------
+
+    def _get_user_workspace(self, user_id: str) -> Path:
+        if user_id not in self._user_workspaces:
+            ws = get_workspace_path(user_id=user_id)
+            sync_workspace_templates(ws, silent=True)
+            self._user_workspaces[user_id] = ws
+        return self._user_workspaces[user_id]
+
+    def _get_user_session_manager(self, user_id: str) -> "SessionManager":
+        if user_id not in self._user_session_managers:
+            # Fall back to the global SessionManager when one was injected
+            # (e.g. in tests) — in production self._session_manager is None.
+            if self._session_manager is not None:
+                return self._session_manager
+            from nanobot.session.manager import SessionManager
+
+            ws = self._get_user_workspace(user_id)
+            self._user_session_managers[user_id] = SessionManager(ws)
+        return self._user_session_managers[user_id]
+
+    def _get_user_cron_service(self, user_id: str) -> "CronService":
+        from nanobot.cron.service import CronService
+
+        if user_id not in self._user_cron_services:
+            ws = self._get_user_workspace(user_id)
+            self._user_cron_services[user_id] = CronService(ws / "cron" / "jobs.json")
+        return self._user_cron_services[user_id]
+
+    def _get_user_webui_dir(self, user_id: str) -> Path:
+        from nanobot.config.paths import get_webui_dir
+
+        return get_webui_dir(user_id=user_id)
 
     # -- Auth helpers ---------------------------------------------------------
 
@@ -570,20 +615,24 @@ class WebSocketChannel(BaseChannel):
         token = _bearer_token(request.headers)
         if token and not token.startswith("nbwt_"):
             payload = verify_token(token)
-            return payload.user_id if payload else None
+            if payload is not None:
+                return payload.user_id
         # Fall back to legacy nbwt_* token pool
         if self._check_api_token(request):
             return "__legacy__"
         return None
 
     def _get_user_from_request(self, request: WsRequest) -> dict | None:
-        """Extract and validate user identity from request; return user dict or None."""
+        """Extract and validate user identity from request; return user dict or None.
+
+        Returns a synthetic ``__legacy__`` user for legacy API tokens so that
+        session-ownership checks can skip user-scoped filtering.
+        """
         user_id = self._check_jwt_auth(request)
         if user_id is None:
             return None
         if user_id == "__legacy__":
-            users = list_users()
-            return users[0].to_public() if users else None
+            return {"id": "__legacy__", "username": "legacy", "displayName": "Legacy", "role": "admin"}
         user = get_user_by_id(user_id)
         return user.to_public() if user else None
 
@@ -599,6 +648,24 @@ class WebSocketChannel(BaseChannel):
         if user.get("role") != "admin":
             return None
         return user
+
+    def _require_admin_for_token(self, request: WsRequest) -> dict | None:
+        """Validate JWT or WS token and check admin role. Returns user dict or None."""
+        # First try JWT (Bearer) via _get_user_from_request
+        user = self._get_user_from_request(request)
+        if user is not None:
+            if user.get("role") != "admin":
+                return None
+            return user
+        # Fall back to query string WS token
+        token = _query_first(_parse_query(request.path), "token") or ""
+        user_id = self._ws_token_user.get(token, "")
+        if not user_id:
+            return None
+        user_obj = get_user_by_id(user_id)
+        if user_obj is None or user_obj.role != "admin":
+            return None
+        return user_obj.to_public()
 
     # -- Subscription bookkeeping -------------------------------------------
 
@@ -762,6 +829,8 @@ class WebSocketChannel(BaseChannel):
         m = re.match(r"^/api/auth/users/([^/]+)/delete$", got)
         if m:
             return self._handle_auth_user_delete(request, m.group(1))
+        if got == "/api/auth/users/create":
+            return self._handle_auth_user_create(request)
 
         # 4. REST handlers co-located with this channel (sessions, settings, …).
         if got == "/api/sessions":
@@ -769,6 +838,27 @@ class WebSocketChannel(BaseChannel):
 
         if got == "/api/settings":
             return self._handle_settings(request)
+
+        if got == "/api/settings/profile":
+            return self._handle_settings_profile(request)
+
+        if got == "/api/settings/skills":
+            return self._handle_settings_skills(request)
+
+        if got == "/api/settings/cron":
+            return self._handle_settings_cron(request)
+
+        m = re.match(r"^/api/settings/skills/([^/]+)/delete$", got)
+        if m:
+            return self._handle_settings_skill_delete(request, m.group(1))
+
+        m = re.match(r"^/api/settings/skills/([^/]+)/content$", got)
+        if m:
+            return self._handle_settings_skill_content(request, m.group(1))
+
+        m = re.match(r"^/api/settings/skills/([^/]+)/update$", got)
+        if m:
+            return self._handle_settings_skill_update(request, m.group(1))
 
         if got == "/api/commands":
             return self._handle_commands(request)
@@ -849,9 +939,11 @@ class WebSocketChannel(BaseChannel):
                 client_id = client_id[:128]
             if not self.is_allowed(client_id):
                 return connection.respond(403, "Forbidden")
-            # Associate WS token with user for session-scoping
+            # Associate WS token with user for session-scoping.
+            # Keep the token in _ws_token_user (using get, not pop) so
+            # settings write endpoints can verify admin role via the token.
             ws_token = _query_first(query, "token") or ""
-            user_id = self._ws_token_user.pop(ws_token, "")
+            user_id = self._ws_token_user.get(ws_token, "")
             self._conn_user[connection] = user_id
             return self._authorize_websocket_handshake(connection, query)
 
@@ -975,6 +1067,26 @@ class WebSocketChannel(BaseChannel):
             return _http_error(404, "User not found")
         return _http_json_response({"ok": True})
 
+    def _handle_auth_user_create(self, request: WsRequest) -> Response:
+        admin = self._require_admin(request)
+        if admin is None:
+            return _http_error(403, "Admin only")
+        query = _parse_query(request.path)
+        username = (_query_first(query, "username") or "").strip()
+        password = (_query_first(query, "password") or "").strip()
+        role = (_query_first(query, "role") or "user").strip()
+        if not username or not password:
+            return _http_error(400, "username and password are required")
+        if len(password) < 6:
+            return _http_error(400, "Password must be at least 6 characters")
+        if role not in ("admin", "user"):
+            return _http_error(400, "role must be 'admin' or 'user'")
+        try:
+            user = create_user(username, password, display_name=username, role=role)
+            return _http_json_response({"ok": True, "user": user.to_public()})
+        except Exception:
+            return _http_error(409, "Username already exists")
+
     def _session_key_for_user(self, chat_id: str, user_id: str = "") -> str:
         """Build a user-scoped session key."""
         if user_id:
@@ -986,25 +1098,35 @@ class WebSocketChannel(BaseChannel):
 
     # -- Session / settings handlers ------------------------------------------
 
+    @staticmethod
+    def _session_owned_by_user(key: str, user_id: str) -> bool:
+        """Check that *key* belongs to *user_id*.
+
+        Legacy tokens resolve to ``__legacy__`` which cannot be mapped to a
+        specific user, so the check is skipped in that case.
+        """
+        if user_id == "__legacy__":
+            return True
+        return key.startswith(f"websocket:{user_id}:")
+
     def _handle_sessions_list(self, request: WsRequest) -> Response:
         user = self._require_auth(request)
         if user is None:
             return _http_error(401, "Unauthorized")
-        if self._session_manager is None:
-            return _http_error(503, "session manager unavailable")
         user_id = user["id"]
-        sessions = self._session_manager.list_sessions()
+        sm = self._get_user_session_manager(user_id)
+        sessions = sm.list_sessions()
         cleaned = []
+        if user_id == "__legacy__":
+            key_prefix = "websocket:"
+        else:
+            key_prefix = f"websocket:{user_id}:"
         for s in sessions:
             key = s.get("key")
-            if not (isinstance(key, str) and key.startswith("websocket:")):
-                continue
-            # Only show sessions owned by this user
-            prefix = f"websocket:{user_id}:"
-            if not key.startswith(prefix):
+            if not (isinstance(key, str) and key.startswith(key_prefix)):
                 continue
             row = {k: v for k, v in s.items() if k != "path"}
-            chat_id = key.split(":", 2)[-1]
+            chat_id = key.split(":", 2)[-1] if ":" in key else key
             started_at = websocket_turn_wall_started_at(chat_id)
             if started_at is not None:
                 row["run_started_at"] = started_at
@@ -1012,9 +1134,79 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response({"sessions": cleaned})
 
     def _handle_settings(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
+        if not self._require_auth(request):
             return _http_error(401, "Unauthorized")
         return _http_json_response(self._with_settings_restart_state(settings_payload()))
+
+    def _handle_settings_profile(self, request: WsRequest) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from nanobot.webui.settings_api import profile_files_payload
+
+        ws = self._get_user_workspace(user["id"])
+        return _http_json_response(profile_files_payload(str(ws)))
+
+    def _handle_settings_skills(self, request: WsRequest) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from nanobot.webui.settings_api import skills_list_payload
+
+        ws = self._get_user_workspace(user["id"])
+        return _http_json_response(skills_list_payload(str(ws)))
+
+    def _handle_settings_cron(self, request: WsRequest) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from nanobot.webui.settings_api import cron_list_payload
+
+        ws = self._get_user_workspace(user["id"])
+        return _http_json_response(cron_list_payload(user["id"], str(ws)))
+
+    def _handle_settings_skill_delete(self, request: WsRequest, name: str) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from nanobot.webui.settings_api import delete_user_skill
+
+        ws = self._get_user_workspace(user["id"])
+        try:
+            deleted = delete_user_skill(str(ws), name)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response({"deleted": deleted})
+
+    def _handle_settings_skill_content(self, request: WsRequest, name: str) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from pathlib import Path
+
+        from nanobot.agent.skills import SkillsLoader
+
+        ws = self._get_user_workspace(user["id"])
+        loader = SkillsLoader(ws)
+        content = loader.load_skill(name) or ""
+        return _http_json_response({"name": name, "content": content})
+
+    def _handle_settings_skill_update(self, request: WsRequest, name: str) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from nanobot.webui.settings_api import update_user_skill_content
+
+        query = _parse_query(request.path)
+        content = _query_first(query, "content")
+        if content is None:
+            return _http_error(400, "missing content")
+        ws = self._get_user_workspace(user["id"])
+        try:
+            update_user_skill_content(str(ws), name, content)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response({"ok": True})
 
     def _with_settings_restart_state(
         self,
@@ -1035,17 +1227,19 @@ class WebSocketChannel(BaseChannel):
         return payload
 
     def _handle_commands(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
+        if not self._require_auth(request):
             return _http_error(401, "Unauthorized")
         return _http_json_response({"commands": builtin_command_palette()})
 
     def _handle_webui_sidebar_state(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
+        user = self._require_auth(request)
+        if user is None:
             return _http_error(401, "Unauthorized")
-        return _http_json_response(read_webui_sidebar_state())
+        return _http_json_response(read_webui_sidebar_state(user_id=user["id"]))
 
     def _handle_webui_sidebar_state_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
+        user = self._require_auth(request)
+        if user is None:
             return _http_error(401, "Unauthorized")
         query = _parse_query(request.path)
         raw_state = _query_first(query, "state")
@@ -1058,7 +1252,7 @@ class WebSocketChannel(BaseChannel):
         if not isinstance(decoded, dict):
             return _http_error(400, "state must be an object")
         try:
-            state = write_webui_sidebar_state(decoded)
+            state = write_webui_sidebar_state(decoded, user_id=user["id"])
         except ValueError as e:
             return _http_error(400, str(e))
         except OSError:
@@ -1067,8 +1261,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(state)
 
     def _handle_settings_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
         query = _parse_query(request.path)
         try:
             payload = update_agent_settings(query)
@@ -1079,8 +1273,8 @@ class WebSocketChannel(BaseChannel):
         )
 
     def _handle_settings_model_configuration_create(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
         query = _parse_query(request.path)
         try:
             payload = create_model_configuration(query)
@@ -1089,8 +1283,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(self._with_settings_restart_state(payload))
 
     def _handle_settings_provider_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
         query = _parse_query(request.path)
         try:
             payload = update_provider_settings(query)
@@ -1099,8 +1293,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(self._with_settings_restart_state(payload, section="image"))
 
     def _handle_settings_web_search_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
         query = _parse_query(request.path)
         try:
             payload = update_web_search_settings(query)
@@ -1109,8 +1303,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(self._with_settings_restart_state(payload, section="web"))
 
     def _handle_settings_image_generation_update(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
         query = _parse_query(request.path)
         try:
             payload = update_image_generation_settings(query)
@@ -1119,7 +1313,7 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(self._with_settings_restart_state(payload, section="image"))
 
     def _handle_settings_cli_apps(self, request: WsRequest) -> Response:
-        if not self._check_api_token(request):
+        if not self._require_auth(request):
             return _http_error(401, "Unauthorized")
         try:
             payload = cli_apps_payload()
@@ -1129,8 +1323,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(payload)
 
     async def _handle_settings_cli_apps_action(self, request: WsRequest, action: str) -> Response:
-        if not self._check_api_token(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
         query = _parse_query(request.path)
         try:
             payload = await asyncio.to_thread(cli_apps_action, action, query)
@@ -1149,7 +1343,9 @@ class WebSocketChannel(BaseChannel):
         request: WsRequest,
         action: str | None = None,
     ) -> Response:
-        if not self._check_api_token(request):
+        if action is not None and not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        if action is None and not self._require_auth(request):
             return _http_error(401, "Unauthorized")
         try:
             payload = await mcp_presets_settings_action(
@@ -1178,20 +1374,17 @@ class WebSocketChannel(BaseChannel):
         user = self._require_auth(request)
         if user is None:
             return _http_error(401, "Unauthorized")
-        if self._session_manager is None:
-            return _http_error(503, "session manager unavailable")
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        # Require ownership: session key must start with websocket:<user_id>:
-        prefix = f"websocket:{user['id']}:"
-        if not decoded_key.startswith(prefix):
+        if not self._session_owned_by_user(decoded_key, user["id"]):
             return _http_error(403, "Forbidden")
         # Only ``websocket:…`` sessions are listed/served here — same boundary as
         # ``/api/sessions``. Block handcrafted URLs from probing CLI / Slack / etc.
         if not self._is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
-        data = self._session_manager.read_session_file(decoded_key)
+        sm = self._get_user_session_manager(user["id"])
+        data = sm.read_session_file(decoded_key)
         if data is None:
             return _http_error(404, "session not found")
         messages = data.get("messages")
@@ -1211,8 +1404,7 @@ class WebSocketChannel(BaseChannel):
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        prefix = f"websocket:{user['id']}:"
-        if not decoded_key.startswith(prefix):
+        if not self._session_owned_by_user(decoded_key, user["id"]):
             return _http_error(403, "Forbidden")
         if not self._is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
@@ -1220,6 +1412,7 @@ class WebSocketChannel(BaseChannel):
             decoded_key,
             augment_user_media=self._augment_transcript_user_media,
             augment_assistant_text=self._rewrite_local_markdown_images,
+            user_id=user["id"],
         )
         if data is None:
             return _http_error(404, "webui thread not found")
@@ -1230,7 +1423,7 @@ class WebSocketChannel(BaseChannel):
         sk = self._session_key_for_user(chat_id, user_id)
         try:
             dup = json.loads(json.dumps(wire, ensure_ascii=False))
-            append_transcript_object(sk, dup)
+            append_transcript_object(sk, dup, user_id=user_id)
         except (ValueError, TypeError) as e:
             self.logger.warning("webui transcript append failed: {}", e)
 
@@ -1424,18 +1617,16 @@ class WebSocketChannel(BaseChannel):
         user = self._require_auth(request)
         if user is None:
             return _http_error(401, "Unauthorized")
-        if self._session_manager is None:
-            return _http_error(503, "session manager unavailable")
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        prefix = f"websocket:{user['id']}:"
-        if not decoded_key.startswith(prefix):
+        if not self._session_owned_by_user(decoded_key, user["id"]):
             return _http_error(403, "Forbidden")
         if not self._is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
-        deleted = self._session_manager.delete_session(decoded_key)
-        delete_webui_thread(decoded_key)
+        sm = self._get_user_session_manager(user["id"])
+        deleted = sm.delete_session(decoded_key)
+        delete_webui_thread(decoded_key, user_id=user["id"])
         return _http_json_response({"deleted": bool(deleted)})
 
     def _serve_static(self, request_path: str) -> Response | None:

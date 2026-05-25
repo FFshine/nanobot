@@ -28,8 +28,8 @@ _ALLOWED_DENSITIES = {"comfortable", "compact"}
 _ALLOWED_SORTS = {"updated_desc", "created_desc", "title_asc"}
 
 
-def webui_sidebar_state_path() -> Path:
-    return get_webui_dir() / "sidebar-state.json"
+def webui_sidebar_state_path(user_id: str = "") -> Path:
+    return get_webui_dir(user_id=user_id) / "sidebar-state.json"
 
 
 def default_webui_sidebar_state() -> dict[str, Any]:
@@ -144,8 +144,8 @@ def normalize_webui_sidebar_state(raw: Any) -> dict[str, Any]:
     return state
 
 
-def read_webui_sidebar_state() -> dict[str, Any]:
-    path = webui_sidebar_state_path()
+def read_webui_sidebar_state(user_id: str = "") -> dict[str, Any]:
+    path = webui_sidebar_state_path(user_id=user_id)
     if not path.is_file():
         return default_webui_sidebar_state()
     try:
@@ -160,7 +160,7 @@ def read_webui_sidebar_state() -> dict[str, Any]:
     return normalize_webui_sidebar_state(raw)
 
 
-def write_webui_sidebar_state(raw: dict[str, Any]) -> dict[str, Any]:
+def write_webui_sidebar_state(raw: dict[str, Any], user_id: str = "") -> dict[str, Any]:
     state = normalize_webui_sidebar_state(raw)
     state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     encoded = json.dumps(
@@ -172,7 +172,7 @@ def write_webui_sidebar_state(raw: dict[str, Any]) -> dict[str, Any]:
     if len(encoded) > _MAX_STATE_FILE_BYTES:
         raise ValueError("sidebar state is too large")
 
-    path = webui_sidebar_state_path()
+    path = webui_sidebar_state_path(user_id=user_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
     with open(tmp, "wb") as f:

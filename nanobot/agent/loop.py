@@ -23,6 +23,7 @@ from nanobot.agent.memory import Consolidator, Dream
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.subagent import SubagentManager
+from nanobot.agent.tools.context import bind_workspace
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -30,6 +31,7 @@ from nanobot.agent.tools.self import MyTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
+from nanobot.config.paths import get_workspace_path
 from nanobot.config.schema import AgentDefaults, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
@@ -43,7 +45,7 @@ from nanobot.session.webui_turns import (
     mark_webui_session,
 )
 from nanobot.utils.document import extract_documents
-from nanobot.utils.helpers import image_placeholder_text
+from nanobot.utils.helpers import image_placeholder_text, sync_workspace_templates
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.image_generation_intent import image_generation_prompt
 from nanobot.utils.llm_runtime import LLMRuntime
@@ -242,6 +244,8 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
         self.sessions = session_manager or SessionManager(workspace)
+        # Per-user SessionManager instances (lazily created, keyed by user_id)
+        self._user_session_managers: dict[str, SessionManager] = {}
         self._webui_turns = WebuiTurnCoordinator(
             bus=self.bus,
             sessions=self.sessions,
@@ -555,7 +559,7 @@ class AgentLoop:
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, **extra)
             self._mark_pending_user_turn(session)
-            self.sessions.save(session)
+            self._session_manager_for(session.key).save(session)
             return True
         return False
 
@@ -611,6 +615,31 @@ class AgentLoop:
         if self._unified_session and not msg.session_key_override:
             return UNIFIED_SESSION_KEY
         return msg.session_key
+
+    @staticmethod
+    def _user_id_from_session_key(session_key: str) -> str:
+        """Extract user_id from a ``websocket:{user_id}:{chat_id}`` session key."""
+        if session_key.startswith("websocket:"):
+            parts = session_key.split(":", 2)
+            if len(parts) >= 3:
+                return parts[1]
+        return ""
+
+    def _session_manager_for(self, session_key: str) -> SessionManager:
+        """Return the SessionManager to use for *session_key*.
+
+        When the key embeds a user_id (e.g. ``websocket:user123:chat456``)
+        the per-user session manager is returned so that data is isolated.
+        Otherwise the global session manager is used.
+        """
+        user_id = self._user_id_from_session_key(session_key)
+        if not user_id:
+            return self.sessions
+        if user_id not in self._user_session_managers:
+            ws = get_workspace_path(user_id=user_id)
+            sync_workspace_templates(ws, silent=True)
+            self._user_session_managers[user_id] = SessionManager(ws)
+        return self._user_session_managers[user_id]
 
     def _replay_token_budget(self) -> int:
         """Derive a token budget for session history replay from the context window."""
@@ -922,10 +951,11 @@ class AgentLoop:
                     # next conversation turn.
                     try:
                         key = self._effective_session_key(msg)
-                        session = self.sessions.get_or_create(key)
+                        sm = self._session_manager_for(key)
+                        session = sm.get_or_create(key)
                         if self._restore_runtime_checkpoint(session):
                             self._clear_pending_user_turn(session)
-                            self.sessions.save(session)
+                            sm.save(session)
                             logger.info(
                                 "Restored partial context for cancelled session {}",
                                 key,
@@ -1004,11 +1034,12 @@ class AgentLoop:
         )
         logger.info("Processing system message from {}", msg.sender_id)
         key = msg.session_key_override or f"{channel}:{chat_id}"
-        session = self.sessions.get_or_create(key)
+        sm = self._session_manager_for(key)
+        session = sm.get_or_create(key)
         if self._restore_runtime_checkpoint(session):
-            self.sessions.save(session)
+            sm.save(session)
         if self._restore_pending_user_turn(session):
-            self.sessions.save(session)
+            sm.save(session)
 
         session, pending = self.auto_compact.prepare_session(session, key)
         if pending:
@@ -1021,7 +1052,7 @@ class AgentLoop:
         is_subagent = msg.sender_id == "subagent"
         if is_subagent and self._persist_subagent_followup(session, msg):
             logger.debug("Subagent result persisted for session {}", key)
-            self.sessions.save(session)
+            sm.save(session)
         self._set_tool_context(
             channel, chat_id, msg.metadata.get("message_id"),
             msg.metadata, session_key=key,
@@ -1059,7 +1090,7 @@ class AgentLoop:
             self._pending_turn_latency_ms[key] = latency_ms
         session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_runtime_checkpoint(session)
-        self.sessions.save(session)
+        self._session_manager_for(key).save(session)
         self._schedule_background(
             self.consolidator.maybe_consolidate_by_tokens(
                 session,
@@ -1090,6 +1121,13 @@ class AgentLoop:
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         self._refresh_provider_snapshot()
+
+        # Bind per-user workspace so tools resolve paths under the user's
+        # isolated workspace directory instead of the global workspace.
+        key = session_key or msg.session_key
+        user_id = self._user_id_from_session_key(key)
+        if user_id:
+            bind_workspace(get_workspace_path(user_id=user_id))
 
         if msg.channel == "system":
             return await self._process_system_message(
@@ -1216,13 +1254,15 @@ class AgentLoop:
         # Session is already fetched by the caller (_process_message) but
         # ensure it exists in case this handler is invoked independently.
         if ctx.session is None:
-            ctx.session = self.sessions.get_or_create(ctx.session_key)
+            sm = self._session_manager_for(ctx.session_key)
+            ctx.session = sm.get_or_create(ctx.session_key)
+        sm = self._session_manager_for(ctx.session_key)
         mark_webui_session(ctx.session, msg.metadata)
 
         if self._restore_runtime_checkpoint(ctx.session):
-            self.sessions.save(ctx.session)
+            sm.save(ctx.session)
         if self._restore_pending_user_turn(ctx.session):
-            self.sessions.save(ctx.session)
+            sm.save(ctx.session)
 
         return "ok"
 
@@ -1251,7 +1291,7 @@ class AgentLoop:
                 ctx.session.add_message(
                     "assistant", result.content, _command=True
                 )
-                self.sessions.save(ctx.session)
+                self._session_manager_for(ctx.session_key).save(ctx.session)
                 self._clear_pending_user_turn(ctx.session)
             return "shortcut"
         return "dispatch"
@@ -1338,7 +1378,7 @@ class AgentLoop:
         ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
-        self.sessions.save(ctx.session)
+        self._session_manager_for(ctx.session_key).save(ctx.session)
         self._schedule_background(
             self.consolidator.maybe_consolidate_by_tokens(
                 ctx.session,
@@ -1473,7 +1513,7 @@ class AgentLoop:
     def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
         """Persist the latest in-flight turn state into session metadata."""
         session.metadata[self._RUNTIME_CHECKPOINT_KEY] = payload
-        self.sessions.save(session)
+        self._session_manager_for(session.key).save(session)
 
     def _mark_pending_user_turn(self, session: Session) -> None:
         session.metadata[self._PENDING_USER_TURN_KEY] = True

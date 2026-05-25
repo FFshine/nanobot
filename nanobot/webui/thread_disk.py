@@ -11,21 +11,21 @@ from nanobot.session.manager import SessionManager
 from nanobot.webui.transcript import delete_webui_transcript
 
 
-def webui_thread_file_path(session_key: str) -> Path:
+def webui_thread_file_path(session_key: str, user_id: str = "") -> Path:
     stem = SessionManager.safe_key(session_key)
-    return get_webui_dir() / f"{stem}.json"
+    return get_webui_dir(user_id=user_id) / f"{stem}.json"
 
 
-def delete_webui_thread(session_key: str) -> bool:
+def delete_webui_thread(session_key: str, user_id: str = "") -> bool:
     """Remove legacy WebUI JSON snapshot and append-only transcript for *session_key*."""
     removed = False
-    path = webui_thread_file_path(session_key)
+    path = webui_thread_file_path(session_key, user_id=user_id)
     if path.is_file():
         try:
             path.unlink()
             removed = True
         except OSError as e:
             logger.warning("Failed to delete webui thread file {}: {}", path, e)
-    if delete_webui_transcript(session_key):
+    if delete_webui_transcript(session_key, user_id=user_id):
         removed = True
     return removed

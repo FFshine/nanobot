@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+from nanobot.agent.tools.context import current_workspace
 from nanobot.config.paths import get_media_dir
 
 WORKSPACE_BOUNDARY_NOTE = (
@@ -9,6 +11,9 @@ WORKSPACE_BOUNDARY_NOTE = (
     "do not retry with shell tricks or alternative tools, and ask "
     "the user how to proceed if the resource is genuinely required)"
 )
+
+# Directories that must never be written to by any agent tool.
+_NO_WRITE_DIRS: tuple[Path, ...] = (BUILTIN_SKILLS_DIR.resolve(),)
 
 
 def is_under(path: Path, directory: Path) -> bool:
@@ -25,8 +30,15 @@ def resolve_workspace_path(
     workspace: Path | None = None,
     allowed_dir: Path | None = None,
     extra_allowed_dirs: list[Path] | None = None,
+    *,
+    for_write: bool = False,
 ) -> Path:
     """Resolve path against workspace and enforce allowed directory containment."""
+    # Per-user workspace override (set at turn time via bind_workspace).
+    if (user_ws := current_workspace()) is not None:
+        workspace = user_ws
+        if allowed_dir is not None:
+            allowed_dir = user_ws
     p = Path(path).expanduser()
     if not p.is_absolute() and workspace:
         p = workspace / p
@@ -39,4 +51,11 @@ def resolve_workspace_path(
                 f"Path {path} is outside allowed directory {allowed_dir}"
                 + WORKSPACE_BOUNDARY_NOTE
             )
+    if for_write:
+        for blocked in _NO_WRITE_DIRS:
+            if is_under(resolved, blocked):
+                raise PermissionError(
+                    f"Path {path} is inside a protected system directory {blocked}"
+                    + WORKSPACE_BOUNDARY_NOTE
+                )
     return resolved

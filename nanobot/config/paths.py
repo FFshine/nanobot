@@ -37,8 +37,14 @@ def get_media_dir(channel: str | None = None, user_id: str = "") -> Path:
     return base
 
 
-def get_cron_dir() -> Path:
-    """Return the cron storage directory."""
+def get_cron_dir(user_id: str = "") -> Path:
+    """Return the cron storage directory.
+
+    When *user_id* is provided, the path is scoped to the per-user
+    workspace so that scheduled jobs are isolated.
+    """
+    if user_id:
+        return ensure_dir(get_workspace_path(user_id=user_id) / "cron")
     return get_runtime_subdir("cron")
 
 
@@ -47,19 +53,34 @@ def get_logs_dir() -> Path:
     return get_runtime_subdir("logs")
 
 
-def get_webui_dir() -> Path:
-    """Return the directory for WebUI-only persisted display threads (JSON)."""
+def get_webui_dir(user_id: str = "") -> Path:
+    """Return the directory for WebUI-only persisted display threads (JSON).
+
+    When *user_id* is provided, the path is scoped to the per-user
+    workspace so that sidebar state, threads, and transcripts are isolated.
+    """
+    if user_id and user_id != "__legacy__":
+        return ensure_dir(get_workspace_path(user_id=user_id) / "webui")
     return get_runtime_subdir("webui")
 
 
-def get_workspace_path(workspace: str | None = None) -> Path:
-    """Resolve and ensure the agent workspace path."""
+def get_workspace_path(workspace: str | None = None, user_id: str = "") -> Path:
+    """Resolve and ensure the agent workspace path.
+
+    When *user_id* is provided, the workspace is scoped to
+    ``~/.nanobot/workspaces/{user_id}`` regardless of any explicit
+    workspace override.  This keeps per-user data isolated.
+    """
+    if user_id:
+        return ensure_dir(Path.home() / ".nanobot" / "workspaces" / user_id)
     path = Path(workspace).expanduser() if workspace else Path.home() / ".nanobot" / "workspace"
     return ensure_dir(path)
 
 
-def is_default_workspace(workspace: str | Path | None) -> bool:
+def is_default_workspace(workspace: str | Path | None, user_id: str = "") -> bool:
     """Return whether a workspace resolves to nanobot's default workspace path."""
+    if user_id:
+        return True
     current = Path(workspace).expanduser() if workspace is not None else Path.home() / ".nanobot" / "workspace"
     default = Path.home() / ".nanobot" / "workspace"
     return current.resolve(strict=False) == default.resolve(strict=False)

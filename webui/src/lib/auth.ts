@@ -56,6 +56,12 @@ export function isAdmin(): boolean {
   return _user?.role === "admin";
 }
 
+function toBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  const binString = String.fromCharCode(...bytes);
+  return btoa(binString);
+}
+
 export async function fetchBootstrap(
   username: string,
   password: string,
@@ -63,7 +69,7 @@ export async function fetchBootstrap(
   const resp = await fetch("/webui/bootstrap", {
     method: "GET",
     headers: {
-      Authorization: `Basic ${btoa(`${username}:${password}`)}`,
+      Authorization: `Basic ${toBase64(`${username}:${password}`)}`,
     },
   });
   if (!resp.ok) {

@@ -74,6 +74,15 @@ import {
   fetchSettings,
   fetchCliApps,
   fetchMcpPresets,
+  fetchCronJobs,
+  fetchProfile,
+  fetchSkills,
+  deleteSkill,
+  fetchSkillContent,
+  updateSkillContent,
+  fetchUsers,
+  createUser,
+  deleteUser,
   importMcpConfig,
   runCliAppAction,
   runMcpPresetAction,
@@ -91,6 +100,7 @@ import {
   providerBrand,
   providerDisplayLabel,
 } from "@/lib/provider-brand";
+import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 import type {
@@ -111,6 +121,10 @@ type SettingsSectionKey =
   | "web"
   | "cliApps"
   | "mcp"
+  | "profile"
+  | "skills"
+  | "cron"
+  | "users"
   | "runtime"
   | "advanced";
 
@@ -328,6 +342,10 @@ export function SettingsView({
   });
   const [webSearchKeyVisible, setWebSearchKeyVisible] = useState(false);
   const [webSearchKeyEditing, setWebSearchKeyEditing] = useState(false);
+  const [profileData, setProfileData] = useState<{ soul: string; user: string; memory: string } | null>(null);
+  const [skillsList, setSkillsList] = useState<Array<{ name: string; description: string; source: string }> | null>(null);
+  const [cronJobs, setCronJobs] = useState<Array<{ id: string; name: string; enabled: boolean; schedule: string; next_run_ms: number | null }> | null>(null);
+  const [usersList, setUsersList] = useState<Array<{ id: string; username: string; displayName: string; role: string }> | null>(null);
   const [form, setForm] = useState<AgentSettingsDraft>({
     model: "",
     provider: "",
@@ -445,6 +463,38 @@ export function SettingsView({
   }, [token]);
 
   useEffect(() => {
+    let cancelled = false;
+    fetchProfile(token)
+      .then((data) => { if (!cancelled) setProfileData(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSkills(token)
+      .then((data) => { if (!cancelled) setSkillsList(data.skills); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCronJobs(token)
+      .then((data) => { if (!cancelled) setCronJobs(data.cron_jobs); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchUsers(token)
+      .then((data) => { if (!cancelled) setUsersList(data.users); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(LOCAL_PREFS_STORAGE_KEY, JSON.stringify(localPrefs));
     } catch {
@@ -518,7 +568,7 @@ export function SettingsView({
   );
 
   const saveModelSettings = async () => {
-    if (!settings || !modelDirty || saving) return;
+    if (!isAdmin() || !settings || !modelDirty || saving) return;
     setSaving(true);
     try {
       const defaultModel = defaultPreset(settings)?.model ?? settings.agent.model;
@@ -578,7 +628,7 @@ export function SettingsView({
   };
 
   const saveRuntimeSettings = async () => {
-    if (!settings || !runtimeDirty || saving) return;
+    if (!isAdmin() || !settings || !runtimeDirty || saving) return;
     setSaving(true);
     try {
       const payload = await updateSettings(token, {
@@ -600,7 +650,7 @@ export function SettingsView({
   };
 
   const saveImageGenerationSettings = async () => {
-    if (!settings || !imageGenerationDirty || imageGenerationSaving) return;
+    if (!isAdmin() || !settings || !imageGenerationDirty || imageGenerationSaving) return;
     setImageGenerationSaving(true);
     try {
       const payload = await updateImageGenerationSettings(token, imageGenerationForm);
@@ -617,7 +667,7 @@ export function SettingsView({
   };
 
   const saveProvider = async (providerName: string) => {
-    if (providerSaving) return;
+    if (!isAdmin() || providerSaving) return;
     const provider = settings?.providers.find((item) => item.name === providerName);
     if (!provider) return;
     const providerForm = providerForms[providerName] ?? { apiKey: "", apiBase: "" };
@@ -656,7 +706,7 @@ export function SettingsView({
   };
 
   const saveWebSearch = async () => {
-    if (!settings || webSearchSaving) return;
+    if (!isAdmin() || !settings || webSearchSaving) return;
     const provider = settings.web_search.providers.find((item) => item.name === webSearchForm.provider);
     if (!provider) return;
     const apiKey = webSearchForm.apiKey?.trim() ?? "";
@@ -784,6 +834,7 @@ export function SettingsView({
     action: "install" | "update" | "uninstall" | "test",
     name: string,
   ) => {
+    if (!isAdmin()) return;
     const key = `${action}:${name}`;
     setCliAppsAction(key);
     setCliAppsMessage(null);
@@ -808,6 +859,7 @@ export function SettingsView({
     name: string,
     values: Record<string, string> = {},
   ) => {
+    if (!isAdmin()) return;
     const key = `${action}:${name}`;
     setMcpPresetAction(key);
     setMcpMessage(null);
@@ -833,6 +885,7 @@ export function SettingsView({
   };
 
   const handleSaveCustomMcp = async () => {
+    if (!isAdmin()) return;
     const name = customMcpForm.name.trim();
     const key = `custom:${name || "new"}`;
     setMcpPresetAction(key);
@@ -864,6 +917,7 @@ export function SettingsView({
   };
 
   const handleImportMcpConfig = async () => {
+    if (!isAdmin()) return;
     setMcpPresetAction("import");
     setMcpMessage(null);
     setMcpError(null);
@@ -884,6 +938,7 @@ export function SettingsView({
   };
 
   const handleMcpToolsChange = async (name: string, enabledTools: string[]) => {
+    if (!isAdmin()) return;
     setMcpPresetAction(`tools:${name}`);
     setMcpMessage(null);
     setMcpError(null);
@@ -1067,6 +1122,32 @@ export function SettingsView({
             isRestarting={isRestarting}
           />
         );
+      case "profile":
+        return <ProfileSettings data={profileData} />;
+      case "skills":
+        return (
+          <SkillsSettings
+            skills={skillsList}
+            token={token}
+            onChanged={() => {
+              fetchSkills(token)
+                .then((data) => setSkillsList(data.skills))
+                .catch(() => {});
+            }}
+          />
+        );
+      case "cron":
+        return <CronSettings jobs={cronJobs} />;
+      case "users":
+        return (
+          <UsersSettings
+            users={usersList}
+            token={token}
+            onChanged={() => {
+              fetchUsers(token).then((data) => { setUsersList(data.users); }).catch(() => {});
+            }}
+          />
+        );
       case "runtime":
         return (
           <RuntimeSettings
@@ -1154,6 +1235,10 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "web", icon: Globe2, fallback: "Web" },
   { key: "cliApps", icon: Package, fallback: "CLI Apps" },
   { key: "mcp", icon: Layers, fallback: "MCP" },
+  { key: "profile", icon: Bot, fallback: "Profile" },
+  { key: "skills", icon: Sparkles, fallback: "Skills" },
+  { key: "cron", icon: RotateCcw, fallback: "Cron" },
+  { key: "users", icon: Cloud, fallback: "Users" },
   { key: "runtime", icon: Server, fallback: "Runtime" },
   { key: "advanced", icon: ShieldCheck, fallback: "Advanced" },
 ];
@@ -1188,13 +1273,22 @@ function SettingsSidebar({
         <h2 className="text-[21px] font-semibold tracking-[-0.02em] text-foreground">
           {t("settings.sidebar.title")}
         </h2>
+        {isAdmin() ? (
+          <span className="mt-1 inline-flex h-5 items-center rounded-full bg-green-100 px-2 text-[10px] font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
+            Admin
+          </span>
+        ) : (
+          <span className="mt-1 inline-flex h-5 items-center rounded-full bg-amber-100 px-2 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+            {t("settings.readOnly", "Read only")}
+          </span>
+        )}
       </div>
 
       <nav
         aria-label={t("settings.sidebar.ariaLabel")}
         className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:block md:space-y-1 md:overflow-visible md:px-0 md:pb-0"
       >
-        {SETTINGS_NAV_ITEMS.map(({ key, icon: Icon, fallback }) => {
+        {SETTINGS_NAV_ITEMS.filter(({ key }) => key !== "users" || isAdmin()).map(({ key, icon: Icon, fallback }) => {
           const active = key === activeSection;
           return (
             <button
@@ -1674,6 +1768,7 @@ function ModelsSettings({
                 <Input
                   value={form.model}
                   onChange={(event) => setForm((prev) => ({ ...prev, model: event.target.value }))}
+                  disabled={!isAdmin()}
                   className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
                 />
               </SettingsRow>
@@ -2086,11 +2181,13 @@ function ImageGenerationSettings({
             dirty={dirty}
             saving={saving}
             pendingRestart={requiresRestartPending}
-            disabled={missingCredential}
+            disabled={missingCredential || !isAdmin()}
             message={
               missingCredential
                 ? tx("settings.image.missingCredential", "Configure this provider before enabling image generation.")
-                : undefined
+                : !isAdmin()
+                  ? tx("settings.readOnly", "Read only")
+                  : undefined
             }
             dirtyMessage={tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")}
             pendingMessage={tx("settings.status.savedRestartApply", "Saved. Restart when ready.")}
@@ -2310,17 +2407,19 @@ function WebSettings({
             dirty={dirty}
             saving={saving}
             pendingRestart={requiresRestartPending}
-            disabled={missingCredential}
+            disabled={missingCredential || !isAdmin()}
             message={
-              missingCredential
-                ? t("settings.byok.webSearch.missingCredential")
-                : requiresRestartPending && !dirty
-                  ? tx("settings.status.savedRestartApply", "Saved. Restart when ready.")
-                  : jinaReaderDirty
-                    ? tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")
-                    : dirty
-                      ? t("settings.byok.webSearch.saveHint")
-                      : undefined
+              !isAdmin()
+                ? tx("settings.readOnly", "Read only")
+                : missingCredential
+                  ? t("settings.byok.webSearch.missingCredential")
+                  : requiresRestartPending && !dirty
+                    ? tx("settings.status.savedRestartApply", "Saved. Restart when ready.")
+                    : jinaReaderDirty
+                      ? tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")
+                      : dirty
+                        ? t("settings.byok.webSearch.saveHint")
+                        : undefined
             }
             onSave={onSave}
             onRestart={onRestart}
@@ -3579,6 +3678,8 @@ function RuntimeSettings({
             dirty={dirty}
             saving={saving}
             pendingRestart={requiresRestartPending}
+            disabled={!isAdmin()}
+            message={!isAdmin() ? t("settings.readOnly", "Read only") : undefined}
             dirtyMessage={tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")}
             pendingMessage={tx("settings.status.savedRestartApply", "Saved. Restart when ready.")}
             onSave={onSave}
@@ -3659,6 +3760,444 @@ function AdvancedSettings({ settings }: { settings: SettingsPayload }) {
           </SettingsRow>
         </SettingsGroup>
       </section>
+    </div>
+  );
+}
+
+function ProfileSettings({ data }: { data: { soul: string; user: string; memory: string } | null }) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const [tab, setTab] = useState<"soul" | "user" | "memory">("soul");
+  const tabs = [
+    { key: "soul" as const, label: "SOUL.md", content: data?.soul ?? "" },
+    { key: "user" as const, label: "USER.md", content: data?.user ?? "" },
+    { key: "memory" as const, label: "MEMORY.md", content: data?.memory ?? "" },
+  ];
+  const current = tabs.find((t) => t.key === tab) ?? tabs[0];
+  return (
+    <div className="space-y-7">
+      <section>
+        <SettingsSectionTitle>{tx("settings.sections.profileFiles", "Profile Files")}</SettingsSectionTitle>
+        <div className="flex gap-2 mb-3">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={cn(
+                "inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium transition-colors border shadow-sm",
+                tab === t.key
+                  ? "bg-foreground text-background border-foreground"
+                  : "bg-background text-muted-foreground border-input hover:bg-muted/60",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <pre className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4 text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+          {current.content || `(${tx("settings.values.empty", "empty")})`}
+        </pre>
+      </section>
+    </div>
+  );
+}
+
+function SkillsSettings({
+  skills,
+  token,
+  onChanged,
+}: {
+  skills: Array<{ name: string; description: string; source: string }> | null;
+  token: string;
+  onChanged: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const list = skills ?? [];
+  const builtin = list.filter((s) => s.source === "builtin");
+  const user = list.filter((s) => s.source !== "builtin");
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ name: string; content: string; readonly: boolean } | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+
+  const handleDelete = async (name: string) => {
+    if (!window.confirm(t("settings.skills.deleteConfirm", { defaultValue: "Delete skill '{name}'?", name }))) return;
+    setDeleting(name);
+    try {
+      await deleteSkill(token, name);
+      onChanged();
+    } catch {
+      // ignore
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleStartEdit = async (name: string) => {
+    setEditLoading(true);
+    try {
+      const data = await fetchSkillContent(token, name);
+      setEditing({ name, content: data.content, readonly: false });
+      setEditContent(data.content);
+    } catch {
+      // ignore
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleView = async (name: string) => {
+    setEditLoading(true);
+    try {
+      const data = await fetchSkillContent(token, name);
+      setEditing({ name, content: data.content, readonly: true });
+      setEditContent(data.content);
+    } catch {
+      // ignore
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editing) return;
+    setEditSaving(true);
+    try {
+      await updateSkillContent(token, editing.name, editContent);
+      setEditing(null);
+      onChanged();
+    } catch {
+      // ignore
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-7">
+      {user.length > 0 && (
+        <section>
+          <SettingsSectionTitle>{tx("settings.sections.userSkills", "User Skills")}</SettingsSectionTitle>
+          <SettingsGroup>
+            {user.map((s) => (
+              <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium">{s.name}</div>
+                  <div className="text-[12px] text-muted-foreground truncate">{s.description || "—"}</div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 ml-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full"
+                    disabled={editLoading}
+                    onClick={() => handleStartEdit(s.name)}
+                    aria-label={tx("settings.actions.edit", "Edit")}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8"
+                    disabled={deleting === s.name}
+                    onClick={() => handleDelete(s.name)}
+                    aria-label={tx("settings.actions.delete", "Delete")}
+                  >
+                    {deleting === s.name ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </SettingsGroup>
+        </section>
+      )}
+      <section>
+        <SettingsSectionTitle>{tx("settings.sections.builtinSkills", "Builtin Skills")}</SettingsSectionTitle>
+        <SettingsGroup>
+          {builtin.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
+          ) : (
+            builtin.map((s) => (
+              <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium">{s.name}</div>
+                  <div className="text-[12px] text-muted-foreground truncate">{s.description || "—"}</div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 ml-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full"
+                    disabled={editLoading}
+                    onClick={() => handleView(s.name)}
+                    aria-label={tx("settings.actions.view", "View")}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsGroup>
+      </section>
+
+      {editing ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-[600px] rounded-[22px] border border-border/55 bg-card/95 p-0 shadow-[0_28px_90px_rgba(15,23,42,0.20)] backdrop-blur-xl">
+            <div className="border-b border-border/45 px-5 py-4">
+              <h3 className="text-[18px] font-semibold">
+                {editing.readonly
+                  ? t("settings.skills.viewTitle", { defaultValue: "View skill: {name}", name: editing.name })
+                  : t("settings.skills.editTitle", { defaultValue: "Edit skill: {name}", name: editing.name })}
+              </h3>
+            </div>
+            <div className="px-5 py-4">
+              <Textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                className="min-h-[300px] text-[13px] font-mono"
+                readOnly={editing.readonly}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border/45 px-5 py-4">
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => setEditing(null)}
+              >
+                {tx("settings.actions.close", "Close")}
+              </Button>
+              {!editing.readonly ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  disabled={editSaving}
+                  onClick={handleSaveEdit}
+                >
+                  {editSaving ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  {editSaving ? tx("settings.actions.saving", "Saving...") : tx("settings.actions.save", "Save")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CronSettings({ jobs }: { jobs: Array<{ id: string; name: string; enabled: boolean; schedule: string; next_run_ms: number | null }> | null }) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const list = jobs ?? [];
+  const formatTime = (ms: number | null) => {
+    if (ms == null) return "—";
+    return new Date(ms).toLocaleString();
+  };
+  return (
+    <div className="space-y-7">
+      <section>
+        <SettingsSectionTitle>{tx("settings.sections.cronJobs", "Scheduled Jobs")}</SettingsSectionTitle>
+        <SettingsGroup>
+          {list.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
+          ) : (
+            list.map((j) => (
+              <div key={j.id} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                <div>
+                  <div className="text-[13px] font-medium">{j.name}</div>
+                  <div className="text-[12px] text-muted-foreground">{j.schedule}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[12px] font-medium">{j.enabled ? tx("settings.values.enabled", "Active") : tx("settings.values.disabled", "Paused")}</div>
+                  <div className="text-[12px] text-muted-foreground">{j.next_run_ms ? formatTime(j.next_run_ms) : "—"}</div>
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsGroup>
+      </section>
+    </div>
+  );
+}
+
+function UsersSettings({
+  users,
+  token,
+  onChanged,
+}: {
+  users: Array<{ id: string; username: string; displayName: string; role: string }> | null;
+  token: string;
+  onChanged: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const [showCreate, setShowCreate] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newRole, setNewRole] = useState("user");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const handleCreate = async () => {
+    setError("");
+    if (!newUsername.trim() || !newPassword.trim()) {
+      setError(tx("settings.users.usernameAndPasswordRequired", "Username and password are required"));
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError(tx("settings.users.passwordMinLength", "Password must be at least 6 characters"));
+      return;
+    }
+    setBusy(true);
+    try {
+      await createUser(token, newUsername.trim(), newPassword, newRole);
+      setShowCreate(false);
+      setNewUsername("");
+      setNewPassword("");
+      setNewRole("user");
+      onChanged();
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (userId: string) => {
+    if (!window.confirm(tx("settings.users.deleteConfirm", "Delete this user?"))) return;
+    try {
+      await deleteUser(token, userId);
+      onChanged();
+    } catch (e: any) {
+      // ignore
+    }
+  };
+
+  const list = users ?? [];
+  return (
+    <div className="space-y-7">
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <SettingsSectionTitle>{tx("settings.sections.users", "Users")}</SettingsSectionTitle>
+          {isAdmin() ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowCreate(true)}
+              className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {tx("settings.users.create", "Create user")}
+            </Button>
+          ) : null}
+        </div>
+        <SettingsGroup>
+          {list.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
+          ) : (
+            list.map((u) => (
+              <div key={u.id} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                <div>
+                  <div className="text-[13px] font-medium">{u.displayName || u.username}</div>
+                  <div className="text-[12px] text-muted-foreground">{u.username}</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={cn(
+                    "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold",
+                    u.role === "admin"
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+                  )}>
+                    {u.role}
+                  </span>
+                  {isAdmin() ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(u.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsGroup>
+      </section>
+
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{tx("settings.users.createTitle", "Create user")}</DialogTitle>
+            <DialogDescription>
+              {tx("settings.users.createDescription", "Add a new user account.")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.users.username", "Username")}</label>
+              <Input
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                placeholder={tx("settings.users.usernamePlaceholder", "Enter username")}
+                className="h-9 rounded-[10px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.users.password", "Password")}</label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder={tx("settings.users.passwordPlaceholder", "Enter password")}
+                className="h-9 rounded-[10px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.users.role", "Role")}</label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                className="flex h-9 w-full rounded-[10px] border border-input bg-background px-3 py-1 text-[13px] shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="user">{tx("settings.users.roleUser", "User")}</option>
+                <option value="admin">{tx("settings.users.roleAdmin", "Admin")}</option>
+              </select>
+            </div>
+            {error ? (
+              <p className="text-[12px] text-destructive">{error}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowCreate(false)} className="h-9 rounded-[10px]">
+              {t("settings.actions.cancel")}
+            </Button>
+            <Button type="button" onClick={handleCreate} disabled={busy} className="h-9 rounded-[10px]">
+              {busy ? t("settings.actions.saving") : t("settings.actions.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -4551,7 +5090,7 @@ function SettingsFooter({
         </SettingsStatusMessage>
       </div>
       <div className="flex justify-end">
-        <Button size="sm" variant="outline" onClick={onSave} disabled={!dirty || saving} className="rounded-full">
+        <Button size="sm" variant="outline" onClick={onSave} disabled={!dirty || saving || !isAdmin()} className="rounded-full">
           {saving ? t("settings.actions.saving") : t("settings.actions.save")}
         </Button>
       </div>

@@ -77,6 +77,7 @@
   },
   "settings": {
     "backToChat": "返回對話",
+    "readOnly": "使用者",
     "sidebar": {
       "title": "設定",
       "ariaLabel": "設定分區"
@@ -93,7 +94,11 @@
       "runtime": "Runtime",
       "advanced": "Advanced",
       "cliApps": "CLI 應用",
-      "mcp": "MCP"
+      "mcp": "MCP",
+      "profile": "設定檔",
+      "skills": "技能",
+      "cron": "Cron",
+      "users": "使用者"
     },
     "sections": {
       "interface": "介面",
@@ -111,7 +116,13 @@
       "capabilities": "功能",
       "integrations": "Integrations",
       "cliApps": "CLI 應用",
-      "mcp": "MCP"
+      "mcp": "MCP",
+      "profileFiles": "設定檔",
+      "skills": "技能",
+      "builtinSkills": "系統技能",
+      "userSkills": "使用者技能",
+      "cronJobs": "排程工作",
+      "users": "使用者"
     },
     "rows": {
       "theme": "主題",
@@ -200,6 +211,8 @@
       "notAvailable": "不可用",
       "enabled": "Enabled",
       "disabled": "Disabled",
+      "empty": "（空）",
+      "none": "無",
       "restartPending": "等待重新啟動",
       "ready": "就緒",
       "comfortable": "Comfortable",
@@ -387,6 +400,21 @@
       "allTools": "全部",
       "noTools": "無",
       "testForTools": "執行測試以檢查並選擇個別工具。"
+    },
+    "users": {
+      "create": "建立使用者",
+      "createTitle": "建立使用者",
+      "createDescription": "新增使用者帳戶。",
+      "username": "使用者名稱",
+      "usernamePlaceholder": "請輸入使用者名稱",
+      "password": "密碼",
+      "passwordPlaceholder": "請輸入密碼",
+      "role": "角色",
+      "roleUser": "使用者",
+      "roleAdmin": "管理員",
+      "usernameAndPasswordRequired": "使用者名稱與密碼為必填項",
+      "passwordMinLength": "密碼至少需要 6 個字元",
+      "deleteConfirm": "確定刪除此使用者？"
     },
     "legal": {
       "thirdPartyBrands": "產品名稱、標誌與品牌均屬於其各自擁有者。使用僅為識別用途，並不代表背書。"

@@ -16,17 +16,23 @@ from loguru import logger
 from pydantic import Field
 
 from nanobot.agent.tools.base import Tool, tool_parameters
+from nanobot.agent.tools.context import current_workspace
 from nanobot.agent.tools.exec_session import (
+    DEFAULT_EXEC_SESSION_MANAGER,
     DEFAULT_MAX_OUTPUT_CHARS,
     DEFAULT_YIELD_MS,
-    DEFAULT_EXEC_SESSION_MANAGER,
     MAX_OUTPUT_CHARS,
     MAX_YIELD_MS,
     clamp_session_int,
     format_session_poll,
 )
 from nanobot.agent.tools.sandbox import wrap_command
-from nanobot.agent.tools.schema import BooleanSchema, IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import (
+    BooleanSchema,
+    IntegerSchema,
+    StringSchema,
+    tool_parameters_schema,
+)
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
 
@@ -346,17 +352,20 @@ class ExecTool(Tool):
         shell: str | None = None,
         login: bool | None = None,
     ) -> _PreparedCommand | str:
-        cwd = working_dir or self.working_dir or os.getcwd()
+        # Per-user workspace override (set at turn time via bind_workspace).
+        user_ws = current_workspace()
+        effective_working_dir = str(user_ws) if user_ws is not None else self.working_dir
+        cwd = working_dir or effective_working_dir or os.getcwd()
 
         # Prevent an LLM-supplied working_dir from escaping the configured
         # workspace when restrict_to_workspace is enabled (#2826). Without
         # this, a caller can pass working_dir="/etc" and then all absolute
         # paths under /etc would pass the _guard_command check that anchors
         # on cwd.
-        if self.restrict_to_workspace and self.working_dir:
+        if self.restrict_to_workspace and effective_working_dir:
             try:
                 requested = Path(cwd).expanduser().resolve()
-                workspace_root = Path(self.working_dir).expanduser().resolve()
+                workspace_root = Path(effective_working_dir).expanduser().resolve()
             except Exception:
                 return (
                     "Error: working_dir could not be resolved"
@@ -379,7 +388,7 @@ class ExecTool(Tool):
                     self.sandbox,
                 )
             else:
-                workspace = self.working_dir or cwd
+                workspace = effective_working_dir or cwd
                 command = wrap_command(self.sandbox, command, workspace, cwd)
                 cwd = str(Path(workspace).resolve())
 
@@ -587,6 +596,19 @@ class ExecTool(Tool):
                         "Error: Command blocked by safety guard (path outside working dir)"
                         + _WORKSPACE_BOUNDARY_NOTE
                     )
+
+        # Block write-like commands targeting protected system directories.
+        from nanobot.agent.tools.path_utils import _NO_WRITE_DIRS
+
+        _write_indicators = ("mkdir", "touch", "cp ", "mv ", "tee ", "dd ", ">")
+        for protected in _NO_WRITE_DIRS:
+            p_str = str(protected)
+            if p_str in cmd and any(ind in cmd for ind in _write_indicators):
+                return (
+                    "Error: Command blocked by safety guard"
+                    " (cannot modify protected system directory)"
+                    + _WORKSPACE_BOUNDARY_NOTE
+                )
 
         return None
 

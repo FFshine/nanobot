@@ -595,6 +595,27 @@ def _migrate_cron_store(config: "Config") -> None:
         shutil.move(str(legacy_path), str(new_path))
 
 
+def _maybe_migrate_to_per_user_workspaces(global_workspace: Path) -> None:
+    """One-time migration: copy global workspace contents to the admin user's
+    per-user workspace, so existing data is not lost after the isolation change."""
+    from nanobot.auth import list_users
+
+    per_user_root = Path.home() / ".nanobot" / "workspaces"
+    users = list_users()
+    admin_id = getattr(users[0], "id", "") if users else ""
+    if not admin_id:
+        return
+    target = per_user_root / admin_id
+    if target.exists():
+        return
+    if not global_workspace.exists():
+        return
+    import shutil
+
+    console.print(f"[yellow]→[/yellow] Migrating workspace to per-user: {target}")
+    shutil.copytree(str(global_workspace), str(target), dirs_exist_ok=True)
+
+
 # ============================================================================
 # OpenAI-Compatible API Server
 # ============================================================================
@@ -738,6 +759,7 @@ def _run_gateway(
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
     if is_default_workspace(config.workspace_path):
         _migrate_cron_store(config)
+        _maybe_migrate_to_per_user_workspaces(config.workspace_path)
 
     # Create cron service with workspace-scoped store
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
