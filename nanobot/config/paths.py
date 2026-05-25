@@ -71,7 +71,7 @@ def get_workspace_path(workspace: str | None = None, user_id: str = "") -> Path:
     ``~/.nanobot/workspaces/{user_id}`` regardless of any explicit
     workspace override.  This keeps per-user data isolated.
     """
-    if user_id:
+    if user_id and user_id != "__legacy__":
         return ensure_dir(Path.home() / ".nanobot" / "workspaces" / user_id)
     path = Path(workspace).expanduser() if workspace else Path.home() / ".nanobot" / "workspace"
     return ensure_dir(path)
@@ -79,7 +79,7 @@ def get_workspace_path(workspace: str | None = None, user_id: str = "") -> Path:
 
 def is_default_workspace(workspace: str | Path | None, user_id: str = "") -> bool:
     """Return whether a workspace resolves to nanobot's default workspace path."""
-    if user_id:
+    if user_id and user_id != "__legacy__":
         return True
     current = Path(workspace).expanduser() if workspace is not None else Path.home() / ".nanobot" / "workspace"
     default = Path.home() / ".nanobot" / "workspace"

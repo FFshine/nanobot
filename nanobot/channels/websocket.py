@@ -584,9 +584,10 @@ class WebSocketChannel(BaseChannel):
 
     def _get_user_session_manager(self, user_id: str) -> "SessionManager":
         if user_id not in self._user_session_managers:
-            # Fall back to the global SessionManager when one was injected
-            # (e.g. in tests) — in production self._session_manager is None.
-            if self._session_manager is not None:
+            # Legacy tokens resolve to __legacy__; use the global store when
+            # one was injected (production or test) so pre-migration data and
+            # test mocks are reachable.
+            if self._session_manager is not None and user_id == "__legacy__":
                 return self._session_manager
             from nanobot.session.manager import SessionManager
 
@@ -697,11 +698,14 @@ class WebSocketChannel(BaseChannel):
         connected clients normally see it via ``goal_state`` / ``turn_end`` frames.
         Pushing here makes refresh + reconnect restore the strip without a new model turn.
         """
-        if self._session_manager is None:
-            return
         user_id = self._chat_user.get(chat_id, "")
+        sm = self._get_user_session_manager(user_id) if user_id else None
+        if sm is None:
+            sm = self._session_manager
+        if sm is None:
+            return
         sk = self._session_key_for_user(chat_id, user_id)
-        row = self._session_manager.read_session_file(sk)
+        row = sm.read_session_file(sk)
         meta = row.get("metadata", {}) if isinstance(row, dict) else {}
         if not isinstance(meta, dict):
             meta = {}
