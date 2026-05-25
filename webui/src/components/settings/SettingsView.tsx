@@ -3893,7 +3893,8 @@ function SkillsSettings({
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const list = skills ?? [];
   const builtin = list.filter((s) => s.source === "builtin");
-  const user = list.filter((s) => s.source !== "builtin");
+  const group = list.filter((s) => s.source === "group");
+  const user = list.filter((s) => s.source !== "builtin" && s.source !== "group");
   const [deleting, setDeleting] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ name: string; content: string; readonly: boolean } | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -3991,6 +3992,34 @@ function SkillsSettings({
                     ) : (
                       <Trash2 className="h-3.5 w-3.5" />
                     )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </SettingsGroup>
+        </section>
+      )}
+      {group.length > 0 && (
+        <section>
+          <SettingsSectionTitle>{tx("settings.sections.groupSkills", "Group Skills")}</SettingsSectionTitle>
+          <SettingsGroup>
+            {group.map((s) => (
+              <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium">{s.name}</div>
+                  <div className="text-[12px] text-muted-foreground truncate">{s.description || "—"}</div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 ml-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full"
+                    disabled={editLoading}
+                    onClick={() => handleView(s.name)}
+                    aria-label={tx("settings.actions.view", "View")}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>

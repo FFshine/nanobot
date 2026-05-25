@@ -764,11 +764,23 @@ def profile_files_payload(workspace_path: str) -> dict[str, Any]:
     }
 
 
-def skills_list_payload(workspace_path: str) -> dict[str, Any]:
-    """Return available skills (builtin + workspace)."""
+def skills_list_payload(workspace_path: str, user_id: str | None = None) -> dict[str, Any]:
+    """Return available skills (builtin + workspace + group)."""
     from pathlib import Path
 
-    from nanobot.agent.skills import SkillsLoader
+    from nanobot.agent.skills import SkillsLoader, link_group_skills
+
+    # Symlink group skills into the workspace so they are discoverable
+    # within the isolation boundary (same strategy as builtin skills).
+    if user_id:
+        try:
+            from nanobot.auth import get_user_groups
+            from nanobot.config.paths import get_group_workspace_path
+
+            group_ws = [get_group_workspace_path(g.id) for g in get_user_groups(user_id)]
+            link_group_skills(Path(workspace_path), group_ws)
+        except Exception:
+            pass
 
     loader = SkillsLoader(Path(workspace_path))
     skills = []

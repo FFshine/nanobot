@@ -45,6 +45,34 @@ def link_builtin_skills(
         link_path.symlink_to(builtin_dir)
 
 
+def link_group_skills(workspace: Path, group_workspaces: list[Path]) -> None:
+    """Symlink group skill dirs into ``{workspace}/skills/``.
+
+    Like ``link_builtin_skills``, this ensures group skills are accessible
+    within the user's workspace boundary so the ``read_file`` tool can
+    read them.  User skills shadow group skills, and symlinks are skipped
+    when a directory with the same name already exists.
+
+    Safe to call multiple times — existing links and user dirs are
+    silently skipped.
+    """
+    if not group_workspaces:
+        return
+    skills_dir = workspace / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for gws in group_workspaces:
+        gws_skills = gws / "skills"
+        if not gws_skills.is_dir():
+            continue
+        for skill_dir in gws_skills.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            link_path = skills_dir / skill_dir.name
+            if link_path.exists():
+                continue
+            link_path.symlink_to(skill_dir)
+
+
 class SkillsLoader:
     """
     Loader for agent skills.
@@ -53,12 +81,11 @@ class SkillsLoader:
     specific tools or perform certain tasks.
     """
 
-    def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None, disabled_skills: set[str] | None = None, group_workspaces: list[Path] | None = None):
+    def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None, disabled_skills: set[str] | None = None):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
         self.disabled_skills = disabled_skills or set()
-        self.group_workspaces = group_workspaces or []
 
     @property
     def _effective_workspace_skills(self) -> Path:
@@ -68,16 +95,6 @@ class SkillsLoader:
         if (user_ws := current_workspace()) is not None:
             return user_ws / "skills"
         return self.workspace_skills
-
-    @property
-    def _effective_group_workspaces(self) -> list[Path]:
-        """Return per-turn group workspaces when bound, else the init-time list."""
-        from nanobot.agent.tools.context import current_group_workspaces
-
-        groups = current_group_workspaces()
-        if groups:
-            return groups
-        return self.group_workspaces
 
     @property
     def _effective_disabled_skills(self) -> set[str]:
@@ -129,32 +146,28 @@ class SkillsLoader:
                 if d.is_dir() and (d / "SKILL.md").exists()
             }
 
-        # Scan workspace skills, but skip entries that are symlinks to
-        # builtin skill dirs — those are handled by the builtin pass below
-        # so they get source="builtin" (no delete button in UI).
+        # Scan workspace skills.  Symlinks pointing to builtin or group
+        # skill dirs are separated out so they get the correct source label
+        # (no delete button in UI for builtin/group skills).
         all_workspace = self._skill_entries_from_dir(self._effective_workspace_skills, "user")
         user_skills: list[dict[str, str]] = []
+        group_skills: list[dict[str, str]] = []
         for entry in all_workspace:
             skill_dir = self._effective_workspace_skills / entry["name"]
-            if skill_dir.is_symlink() and entry["name"] in builtin_names:
-                continue
+            if skill_dir.is_symlink():
+                if entry["name"] in builtin_names:
+                    continue  # handled by builtin pass below
+                target = os.readlink(skill_dir)
+                if "/workspaces/groups/" in target:
+                    entry["source"] = "group"
+                    group_skills.append(entry)
+                    continue
             user_skills.append(entry)
 
-        skills = user_skills
-        user_skill_names = {entry["name"] for entry in skills}
-
-        # Scan group workspace skills — shadowed by user skills
-        group_skills: list[dict[str, str]] = []
-        for gws in self._effective_group_workspaces:
-            group_skills_dir = gws / "skills"
-            for entry in self._skill_entries_from_dir(group_skills_dir, "group"):
-                if entry["name"] not in user_skill_names:
-                    group_skills.append(entry)
-                    user_skill_names.add(entry["name"])  # prevent duplicates across groups
-        skills.extend(group_skills)
+        skills = user_skills + group_skills
+        workspace_names = {entry["name"] for entry in skills}
 
         # Builtin skills — shadowed by user and group skills
-        workspace_names = {entry["name"] for entry in skills}
         if self.builtin_skills and self.builtin_skills.exists():
             skills.extend(
                 self._skill_entries_from_dir(self.builtin_skills, "builtin", skip_names=workspace_names)
@@ -178,11 +191,8 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
-        # User skills first (highest priority)
+        # User/group skills first (symlinks bring group skills into workspace)
         roots: list[Path] = [self._effective_workspace_skills]
-        # Group skills next
-        for gws in self._effective_group_workspaces:
-            roots.append(gws / "skills")
         # Builtin skills last
         if self.builtin_skills:
             roots.append(self.builtin_skills)

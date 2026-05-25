@@ -1270,6 +1270,8 @@ class AgentLoop:
                         group_disabled.update(gs["disabled_skills"])
                 if group_ws:
                     bind_group_workspaces(group_ws)
+                    from nanobot.agent.skills import link_group_skills
+                    link_group_skills(get_workspace_path(user_id=user_id), group_ws)
                 user_disabled = set(self.context.skills.disabled_skills)
                 if group_disabled or user_disabled:
                     bind_effective_disabled_skills(user_disabled | group_disabled)

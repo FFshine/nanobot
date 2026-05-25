@@ -1231,7 +1231,7 @@ class WebSocketChannel(BaseChannel):
         from nanobot.webui.settings_api import skills_list_payload
 
         ws = self._get_user_workspace(user["id"])
-        return _http_json_response(skills_list_payload(str(ws)))
+        return _http_json_response(skills_list_payload(str(ws), user_id=user["id"]))
 
     def _handle_settings_cron(self, request: WsRequest) -> Response:
         user = self._require_auth(request)
