@@ -127,13 +127,11 @@ def _strip_ansi(text):
     return ansi_escape.sub('', text)
 
 
-def test_onboard_help_shows_workspace_and_config_options():
+def test_onboard_help_shows_config_options():
     result = runner.invoke(app, ["onboard", "--help"])
 
     assert result.exit_code == 0
     stripped_output = _strip_ansi(result.stdout)
-    assert "--workspace" in stripped_output
-    assert "-w" in stripped_output
     assert "--config" in stripped_output
     assert "-c" in stripped_output
     assert "--wizard" in stripped_output

@@ -23,7 +23,12 @@ from nanobot.agent.memory import Consolidator, Dream, MemoryStore
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.context import bind_user_role, bind_workspace
+from nanobot.agent.tools.context import (
+    bind_effective_disabled_skills,
+    bind_group_workspaces,
+    bind_user_role,
+    bind_workspace,
+)
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -31,7 +36,7 @@ from nanobot.agent.tools.self import MyTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
-from nanobot.config.paths import get_workspace_path
+from nanobot.config.paths import get_group_workspace_path, get_workspace_path
 from nanobot.config.schema import AgentDefaults, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
@@ -1248,6 +1253,26 @@ class AgentLoop:
                 user = get_user_by_id(user_id)
                 if user is not None:
                     bind_user_role(user.role)
+            except Exception:
+                pass
+
+            # Resolve group workspaces and merge group-level settings
+            try:
+                from nanobot.auth import get_user_groups
+
+                groups = get_user_groups(user_id)
+                group_ws: list[Path] = []
+                group_disabled: set[str] = set()
+                for g in groups:
+                    group_ws.append(get_group_workspace_path(g.id))
+                    gs = g.settings or {}
+                    if isinstance(gs.get("disabled_skills"), list):
+                        group_disabled.update(gs["disabled_skills"])
+                if group_ws:
+                    bind_group_workspaces(group_ws)
+                user_disabled = set(self.context.skills.disabled_skills)
+                if group_disabled or user_disabled:
+                    bind_effective_disabled_skills(user_disabled | group_disabled)
             except Exception:
                 pass
 

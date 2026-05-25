@@ -53,11 +53,12 @@ class SkillsLoader:
     specific tools or perform certain tasks.
     """
 
-    def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None, disabled_skills: set[str] | None = None):
+    def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None, disabled_skills: set[str] | None = None, group_workspaces: list[Path] | None = None):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
         self.disabled_skills = disabled_skills or set()
+        self.group_workspaces = group_workspaces or []
 
     @property
     def _effective_workspace_skills(self) -> Path:
@@ -67,6 +68,26 @@ class SkillsLoader:
         if (user_ws := current_workspace()) is not None:
             return user_ws / "skills"
         return self.workspace_skills
+
+    @property
+    def _effective_group_workspaces(self) -> list[Path]:
+        """Return per-turn group workspaces when bound, else the init-time list."""
+        from nanobot.agent.tools.context import current_group_workspaces
+
+        groups = current_group_workspaces()
+        if groups:
+            return groups
+        return self.group_workspaces
+
+    @property
+    def _effective_disabled_skills(self) -> set[str]:
+        """Return per-turn disabled skills when bound, else the init-time set."""
+        from nanobot.agent.tools.context import current_effective_disabled_skills
+
+        effective = current_effective_disabled_skills()
+        if effective:
+            return effective
+        return self.disabled_skills
 
     def _skill_entries_from_dir(self, base: Path, source: str, *, skip_names: set[str] | None = None) -> list[dict[str, str]]:
         if not base.exists():
@@ -120,14 +141,28 @@ class SkillsLoader:
             user_skills.append(entry)
 
         skills = user_skills
+        user_skill_names = {entry["name"] for entry in skills}
+
+        # Scan group workspace skills — shadowed by user skills
+        group_skills: list[dict[str, str]] = []
+        for gws in self._effective_group_workspaces:
+            group_skills_dir = gws / "skills"
+            for entry in self._skill_entries_from_dir(group_skills_dir, "group"):
+                if entry["name"] not in user_skill_names:
+                    group_skills.append(entry)
+                    user_skill_names.add(entry["name"])  # prevent duplicates across groups
+        skills.extend(group_skills)
+
+        # Builtin skills — shadowed by user and group skills
         workspace_names = {entry["name"] for entry in skills}
         if self.builtin_skills and self.builtin_skills.exists():
             skills.extend(
                 self._skill_entries_from_dir(self.builtin_skills, "builtin", skip_names=workspace_names)
             )
 
-        if self.disabled_skills:
-            skills = [s for s in skills if s["name"] not in self.disabled_skills]
+        disabled = self._effective_disabled_skills
+        if disabled:
+            skills = [s for s in skills if s["name"] not in disabled]
 
         if filter_unavailable:
             return [skill for skill in skills if self._check_requirements(self._get_skill_meta(skill["name"]))]
@@ -143,7 +178,12 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
-        roots = [self._effective_workspace_skills]
+        # User skills first (highest priority)
+        roots: list[Path] = [self._effective_workspace_skills]
+        # Group skills next
+        for gws in self._effective_group_workspaces:
+            roots.append(gws / "skills")
+        # Builtin skills last
         if self.builtin_skills:
             roots.append(self.builtin_skills)
         for root in roots:
@@ -187,9 +227,16 @@ class SkillsLoader:
             return ""
 
         builtin: list[dict[str, str]] = []
+        group: list[dict[str, str]] = []
         user: list[dict[str, str]] = []
         for entry in all_skills:
-            (builtin if entry.get("source") == "builtin" else user).append(entry)
+            src = entry.get("source", "")
+            if src == "builtin":
+                builtin.append(entry)
+            elif src == "group":
+                group.append(entry)
+            else:
+                user.append(entry)
 
         def _format_block(skills: list[dict[str, str]], heading: str) -> str:
             lines: list[str] = [f"### {heading}"]
@@ -211,6 +258,8 @@ class SkillsLoader:
         blocks: list[str] = []
         if builtin:
             blocks.append(_format_block(builtin, "Builtin Skills"))
+        if group:
+            blocks.append(_format_block(group, "Group Skills"))
         if user:
             blocks.append(_format_block(user, "User Skills"))
         return "\n\n".join(blocks)

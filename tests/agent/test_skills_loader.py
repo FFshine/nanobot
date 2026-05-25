@@ -59,7 +59,7 @@ def test_list_skills_workspace_entry_shape_and_source(tmp_path: Path) -> None:
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     entries = loader.list_skills(filter_unavailable=False)
     assert entries == [
-        {"name": "alpha", "path": str(skill_path), "source": "workspace"},
+        {"name": "alpha", "path": str(skill_path), "source": "user"},
     ]
 
 
@@ -92,7 +92,7 @@ def test_list_skills_workspace_shadows_builtin_same_name(tmp_path: Path) -> None
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     entries = loader.list_skills(filter_unavailable=False)
     assert len(entries) == 1
-    assert entries[0]["source"] == "workspace"
+    assert entries[0]["source"] == "user"
     assert entries[0]["path"] == str(ws_path)
 
 
@@ -108,7 +108,7 @@ def test_list_skills_merges_workspace_and_builtin(tmp_path: Path) -> None:
     entries = sorted(loader.list_skills(filter_unavailable=False), key=lambda item: item["name"])
     assert entries == [
         {"name": "bi_only", "path": str(bi_path), "source": "builtin"},
-        {"name": "ws_only", "path": str(ws_path), "source": "workspace"},
+        {"name": "ws_only", "path": str(ws_path), "source": "user"},
     ]
 
 
@@ -121,7 +121,7 @@ def test_list_skills_builtin_omitted_when_dir_missing(tmp_path: Path) -> None:
 
     loader = SkillsLoader(workspace, builtin_skills_dir=missing_builtin)
     entries = loader.list_skills(filter_unavailable=False)
-    assert entries == [{"name": "solo", "path": str(ws_path), "source": "workspace"}]
+    assert entries == [{"name": "solo", "path": str(ws_path), "source": "user"}]
 
 
 def test_list_skills_filter_unavailable_excludes_unmet_bin_requirement(
@@ -173,7 +173,7 @@ def test_list_skills_filter_unavailable_includes_when_bin_requirement_met(
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     entries = loader.list_skills(filter_unavailable=True)
     assert entries == [
-        {"name": "has_bin", "path": str(skill_path), "source": "workspace"},
+        {"name": "has_bin", "path": str(skill_path), "source": "user"},
     ]
 
 
@@ -196,7 +196,7 @@ def test_list_skills_filter_unavailable_false_keeps_unmet_requirements(
     loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
     entries = loader.list_skills(filter_unavailable=False)
     assert entries == [
-        {"name": "blocked", "path": str(skill_path), "source": "workspace"},
+        {"name": "blocked", "path": str(skill_path), "source": "user"},
     ]
 
 
@@ -248,7 +248,7 @@ def test_list_skills_openclaw_metadata_parsed_for_requirements(
     )
     entries = loader.list_skills(filter_unavailable=True)
     assert entries == [
-        {"name": "openclaw_skill", "path": str(skill_path), "source": "workspace"},
+        {"name": "openclaw_skill", "path": str(skill_path), "source": "user"},
     ]
 
 

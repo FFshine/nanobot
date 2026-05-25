@@ -44,6 +44,7 @@ import {
   Sparkles,
   Trash2,
   Triangle,
+  Users,
   Waves,
   Zap,
   type LucideIcon,
@@ -83,6 +84,19 @@ import {
   fetchUsers,
   createUser,
   deleteUser,
+  fetchGroups,
+  createGroup,
+  deleteGroup,
+  fetchGroupDetail,
+  fetchGroupMembers,
+  addGroupMember,
+  removeGroupMember,
+  updateGroup,
+  fetchGroupSkills,
+  fetchGroupSkillContent,
+  createGroupSkill,
+  updateGroupSkill,
+  deleteGroupSkill,
   importMcpConfig,
   runCliAppAction,
   runMcpPresetAction,
@@ -125,6 +139,7 @@ type SettingsSectionKey =
   | "skills"
   | "cron"
   | "users"
+  | "groups"
   | "runtime"
   | "advanced";
 
@@ -1163,6 +1178,8 @@ export function SettingsView({
             }}
           />
         );
+      case "groups":
+        return <GroupsSettings token={token} />;
       case "runtime":
         return (
           <RuntimeSettings
@@ -1254,6 +1271,7 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "skills", icon: Sparkles, fallback: "Skills" },
   { key: "cron", icon: RotateCcw, fallback: "Cron" },
   { key: "users", icon: Cloud, fallback: "Users" },
+  { key: "groups", icon: Users, fallback: "Groups" },
   { key: "runtime", icon: Server, fallback: "Runtime" },
   { key: "advanced", icon: ShieldCheck, fallback: "Advanced" },
 ];
@@ -1301,9 +1319,9 @@ function SettingsSidebar({
 
       <nav
         aria-label={t("settings.sidebar.ariaLabel")}
-        className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:block md:space-y-1 md:overflow-visible md:px-0 md:pb-0"
+        className="-mx-1 flex flex-1 gap-2 overflow-x-auto overflow-y-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:block md:min-h-0 md:space-y-1 md:px-0 md:pb-0"
       >
-        {SETTINGS_NAV_ITEMS.filter(({ key }) => key !== "users" || isAdmin()).map(({ key, icon: Icon, fallback }) => {
+        {SETTINGS_NAV_ITEMS.filter(({ key }) => (key !== "users" && key !== "groups") || isAdmin()).map(({ key, icon: Icon, fallback }) => {
           const active = key === activeSection;
           return (
             <button
@@ -4291,6 +4309,683 @@ function UsersSettings({
             </Button>
             <Button type="button" onClick={handleCreate} disabled={busy} className="h-9 rounded-[10px]">
               {busy ? t("settings.actions.saving") : t("settings.actions.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function GroupsSettings({ token }: { token: string }) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+
+  // Group list state
+  const [groups, setGroups] = useState<Array<{ id: string; name: string; displayName: string; settings: Record<string, unknown>; createdAt: string; updatedAt: string }> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Create group dialog
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [createBusy, setCreateBusy] = useState(false);
+
+  // Selected group for detail view
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [groupDetail, setGroupDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<Array<{ userId: string; username: string; displayName: string; role: string }> | null>(null);
+
+  // Add member dialog
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [newMemberId, setNewMemberId] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState("member");
+  const [addMemberError, setAddMemberError] = useState("");
+  const [addMemberBusy, setAddMemberBusy] = useState(false);
+  const [allUsers, setAllUsers] = useState<Array<{ id: string; username: string; displayName: string; role: string }>>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+
+  // Group settings
+  const [groupSettingsJson, setGroupSettingsJson] = useState("");
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
+  // Group skills
+  const [groupSkills, setGroupSkills] = useState<Array<{ name: string; path: string; source: string }> | null>(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+
+  // Create/edit skill dialog
+  const [showSkillDialog, setShowSkillDialog] = useState(false);
+  const [editingSkillName, setEditingSkillName] = useState<string | null>(null); // null = create mode
+  const [skillFormName, setSkillFormName] = useState("");
+  const [skillFormContent, setSkillFormContent] = useState("");
+  const [skillFormError, setSkillFormError] = useState("");
+  const [skillFormBusy, setSkillFormBusy] = useState(false);
+
+  // View skill dialog
+  const [showSkillView, setShowSkillView] = useState(false);
+  const [viewingSkillName, setViewingSkillName] = useState("");
+  const [viewingSkillContent, setViewingSkillContent] = useState("");
+
+  const loadGroups = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await fetchGroups(token);
+      setGroups(data.groups);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { loadGroups(); }, [loadGroups]);
+
+  const loadUsers = useCallback(async () => {
+    setUsersLoading(true);
+    try {
+      const data = await fetchUsers(token);
+      setAllUsers(data.users);
+    } catch { /* ignore */ } finally {
+      setUsersLoading(false);
+    }
+  }, [token]);
+
+  // Pre-fetch users when the component mounts so the dropdown is ready
+  useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  const loadGroupDetail = useCallback(async (groupId: string) => {
+    setDetailLoading(true);
+    try {
+      const [detail, members] = await Promise.all([
+        fetchGroupDetail(token, groupId),
+        fetchGroupMembers(token, groupId),
+      ]);
+      setGroupDetail(detail);
+      setGroupMembers(members.members);
+      setGroupSettingsJson(JSON.stringify(detail.settings, null, 2));
+    } catch (e: any) {
+      // ignore
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [token]);
+
+  const loadGroupSkills = useCallback(async (groupId: string) => {
+    setSkillsLoading(true);
+    try {
+      const data = await fetchGroupSkills(token, groupId);
+      setGroupSkills(data.skills);
+    } catch { /* ignore */ } finally {
+      setSkillsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (selectedGroupId) {
+      loadGroupDetail(selectedGroupId);
+      loadGroupSkills(selectedGroupId);
+    } else {
+      setGroupDetail(null);
+      setGroupMembers(null);
+      setGroupSkills(null);
+    }
+  }, [selectedGroupId, loadGroupDetail, loadGroupSkills]);
+
+  const handleCreate = async () => {
+    setCreateError("");
+    if (!newName.trim()) {
+      setCreateError(tx("settings.groups.nameRequired", "Group name is required"));
+      return;
+    }
+    if (!/^[a-z0-9_-]+$/.test(newName.trim())) {
+      setCreateError(tx("settings.groups.nameFormat", "Only lowercase letters, digits, hyphens, and underscores"));
+      return;
+    }
+    setCreateBusy(true);
+    try {
+      await createGroup(token, newName.trim(), newDisplayName.trim());
+      setShowCreate(false);
+      setNewName("");
+      setNewDisplayName("");
+      loadGroups();
+    } catch (e: any) {
+      setCreateError(e?.message || String(e));
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
+  const handleDelete = async (groupId: string) => {
+    if (!window.confirm(tx("settings.groups.deleteConfirm", "Delete this group? This cannot be undone."))) return;
+    try {
+      await deleteGroup(token, groupId);
+      if (selectedGroupId === groupId) setSelectedGroupId(null);
+      loadGroups();
+    } catch (e: any) { /* ignore */ }
+  };
+
+  const handleAddMember = async () => {
+    setAddMemberError("");
+    if (!newMemberId.trim() || !selectedGroupId) return;
+    setAddMemberBusy(true);
+    try {
+      await addGroupMember(token, selectedGroupId, newMemberId.trim(), newMemberRole);
+      setShowAddMember(false);
+      setNewMemberId("");
+      setNewMemberRole("member");
+      loadGroupDetail(selectedGroupId);
+    } catch (e: any) {
+      setAddMemberError(e?.message || String(e));
+    } finally {
+      setAddMemberBusy(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!selectedGroupId) return;
+    if (!window.confirm(tx("settings.groups.removeMemberConfirm", "Remove this member?"))) return;
+    try {
+      await removeGroupMember(token, selectedGroupId, userId);
+      loadGroupDetail(selectedGroupId);
+    } catch (e: any) { /* ignore */ }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!selectedGroupId) return;
+    setSettingsSaving(true);
+    try {
+      let settings: Record<string, unknown> = {};
+      try {
+        settings = JSON.parse(groupSettingsJson);
+      } catch { /* keep empty */ }
+      const result = await updateGroup(token, selectedGroupId, undefined, settings);
+      setGroupDetail((prev: any) => prev ? { ...prev, settings: result.settings } : prev);
+    } catch (e: any) { /* ignore */ } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const openCreateSkill = () => {
+    setEditingSkillName(null);
+    setSkillFormName("");
+    setSkillFormContent("");
+    setSkillFormError("");
+    setShowSkillDialog(true);
+  };
+
+  const openEditSkill = async (name: string) => {
+    if (!selectedGroupId) return;
+    setSkillFormError("");
+    setSkillFormBusy(true);
+    try {
+      const data = await fetchGroupSkillContent(token, selectedGroupId, name);
+      setEditingSkillName(name);
+      setSkillFormName(name);
+      setSkillFormContent(data.content);
+      setShowSkillDialog(true);
+    } catch { /* ignore */ } finally {
+      setSkillFormBusy(false);
+    }
+  };
+
+  const handleSaveSkill = async () => {
+    if (!selectedGroupId) return;
+    setSkillFormError("");
+    const name = skillFormName.trim();
+    if (!name) {
+      setSkillFormError(tx("settings.groups.skillNameRequired", "Skill name is required"));
+      return;
+    }
+    if (!/^[a-z0-9_-]+$/.test(name)) {
+      setSkillFormError(tx("settings.groups.nameFormat", "Only lowercase letters, digits, hyphens, and underscores"));
+      return;
+    }
+    setSkillFormBusy(true);
+    try {
+      if (editingSkillName && editingSkillName !== name) {
+        // Rename: delete old, create new
+        await deleteGroupSkill(token, selectedGroupId, editingSkillName);
+      }
+      if (editingSkillName && editingSkillName === name) {
+        await updateGroupSkill(token, selectedGroupId, name, skillFormContent);
+      } else {
+        await createGroupSkill(token, selectedGroupId, name, skillFormContent);
+      }
+      setShowSkillDialog(false);
+      loadGroupSkills(selectedGroupId);
+    } catch (e: any) {
+      setSkillFormError(e?.message || String(e));
+    } finally {
+      setSkillFormBusy(false);
+    }
+  };
+
+  const handleDeleteSkill = async (name: string) => {
+    if (!selectedGroupId) return;
+    if (!window.confirm(tx("settings.groups.deleteSkillConfirm", "Delete skill '{name}'?").replace("{name}", name))) return;
+    try {
+      await deleteGroupSkill(token, selectedGroupId, name);
+      loadGroupSkills(selectedGroupId);
+    } catch { /* ignore */ }
+  };
+
+  const openViewSkill = async (name: string) => {
+    if (!selectedGroupId) return;
+    try {
+      const data = await fetchGroupSkillContent(token, selectedGroupId, name);
+      setViewingSkillName(name);
+      setViewingSkillContent(data.content);
+      setShowSkillView(true);
+    } catch { /* ignore */ }
+  };
+
+  // Detail view for a selected group
+  if (selectedGroupId) {
+    return (
+      <div className="space-y-7">
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-full"
+            onClick={() => setSelectedGroupId(null)}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <SettingsSectionTitle>
+            {groupDetail?.displayName || groupDetail?.name || selectedGroupId}
+          </SettingsSectionTitle>
+        </div>
+
+        {detailLoading ? (
+          <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t("settings.status.loading")}
+          </div>
+        ) : (
+          <>
+            {/* Members section */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[15px] font-semibold">{tx("settings.groups.members", "Members")}</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAddMember(true)}
+                  className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {tx("settings.groups.addMember", "Add member")}
+                </Button>
+              </div>
+              <SettingsGroup>
+                {!groupMembers || groupMembers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
+                ) : (
+                  groupMembers.map((m) => (
+                    <div key={m.userId} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                      <div>
+                        <div className="text-[13px] font-medium">{m.displayName || m.username || m.userId}</div>
+                        <div className="text-[12px] text-muted-foreground">{m.userId}</div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={cn(
+                          "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold",
+                          m.role === "admin"
+                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                            : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+                        )}>
+                          {m.role}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                          onClick={() => handleRemoveMember(m.userId)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </SettingsGroup>
+            </section>
+
+            {/* Skills section */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[15px] font-semibold">{tx("settings.sections.skills", "Skills")}</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={openCreateSkill}
+                  className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {tx("settings.groups.addSkill", "Add skill")}
+                </Button>
+              </div>
+              <SettingsGroup>
+                {skillsLoading ? (
+                  <div className="flex h-16 items-center justify-center text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("settings.status.loading")}
+                  </div>
+                ) : !groupSkills || groupSkills.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
+                ) : (
+                  groupSkills.map((s) => (
+                    <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                      <div>
+                        <button
+                          type="button"
+                          className="text-[13px] font-medium text-left hover:underline"
+                          onClick={() => openViewSkill(s.name)}
+                        >
+                          {s.name}
+                        </button>
+                        <span className={cn(
+                          "ml-2 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold",
+                          "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+                        )}>
+                          {s.source}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+                          onClick={() => openEditSkill(s.name)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                          onClick={() => handleDeleteSkill(s.name)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </SettingsGroup>
+            </section>
+
+            {/* Settings section */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[15px] font-semibold">{tx("settings.groups.groupSettings", "Group Settings")}</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveSettings}
+                  disabled={settingsSaving}
+                  className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+                >
+                  {settingsSaving ? t("settings.actions.saving") : t("settings.actions.save")}
+                </Button>
+              </div>
+              <SettingsGroup>
+                <div className="px-4 py-3">
+                  <p className="text-[12px] text-muted-foreground mb-2">
+                    {tx("settings.groups.settingsHint", "JSON object with optional keys: disabled_skills (string array), model, provider.")}
+                  </p>
+                  <Textarea
+                    value={groupSettingsJson}
+                    onChange={(e) => setGroupSettingsJson(e.target.value)}
+                    className="min-h-[120px] font-mono text-[13px] rounded-[10px]"
+                    placeholder='{"disabled_skills": [], "model": "", "provider": ""}'
+                  />
+                </div>
+              </SettingsGroup>
+            </section>
+          </>
+        )}
+
+        {/* Add member dialog */}
+        <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader>
+              <DialogTitle>{tx("settings.groups.addMemberTitle", "Add member")}</DialogTitle>
+              <DialogDescription>
+                {tx("settings.groups.addMemberDescription", "Enter the user ID to add to this group.")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium">{tx("settings.groups.user", "User")}</label>
+                {usersLoading ? (
+                  <div className="flex h-9 items-center text-[13px] text-muted-foreground">
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    {t("settings.status.loading")}
+                  </div>
+                ) : (
+                  <select
+                    value={newMemberId}
+                    onChange={(e) => setNewMemberId(e.target.value)}
+                    className="flex h-9 w-full rounded-[10px] border border-input bg-background px-3 py-1 text-[13px] shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">{tx("settings.groups.selectUser", "Select a user...")}</option>
+                    {allUsers
+                      .filter((u) => !groupMembers?.some((m) => m.userId === u.id))
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.displayName || u.username} ({u.username})
+                        </option>
+                      ))}
+                  </select>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium">{tx("settings.groups.role", "Role")}</label>
+                <select
+                  value={newMemberRole}
+                  onChange={(e) => setNewMemberRole(e.target.value)}
+                  className="flex h-9 w-full rounded-[10px] border border-input bg-background px-3 py-1 text-[13px] shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="member">{tx("settings.groups.roleMember", "Member")}</option>
+                  <option value="admin">{tx("settings.groups.roleAdmin", "Admin")}</option>
+                </select>
+              </div>
+              {addMemberError ? (
+                <p className="text-[12px] text-destructive">{addMemberError}</p>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowAddMember(false)} className="h-9 rounded-[10px]">
+                {t("settings.actions.cancel")}
+              </Button>
+              <Button type="button" onClick={handleAddMember} disabled={addMemberBusy} className="h-9 rounded-[10px]">
+                {addMemberBusy ? t("settings.actions.saving") : t("settings.actions.save")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Skill create/edit dialog */}
+        <Dialog open={showSkillDialog} onOpenChange={setShowSkillDialog}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>
+                {editingSkillName
+                  ? tx("settings.groups.editSkillTitle", "Edit skill: {name}").replace("{name}", editingSkillName)
+                  : tx("settings.groups.createSkillTitle", "Create skill")}
+              </DialogTitle>
+              <DialogDescription>
+                {tx("settings.groups.skillDescription", "Skills teach the agent how to perform specific tasks.")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium">{tx("settings.groups.skillName", "Name")}</label>
+                <Input
+                  value={skillFormName}
+                  onChange={(e) => setSkillFormName(e.target.value)}
+                  placeholder={tx("settings.groups.skillNamePlaceholder", "e.g. my-skill")}
+                  disabled={editingSkillName !== null}
+                  className="h-9 rounded-[10px]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium">SKILL.md</label>
+                <Textarea
+                  value={skillFormContent}
+                  onChange={(e) => setSkillFormContent(e.target.value)}
+                  className="min-h-[200px] font-mono text-[13px] rounded-[10px]"
+                  placeholder="---&#10;description: What this skill does&#10;---&#10;&#10;# Skill content..."
+                />
+              </div>
+              {skillFormError ? (
+                <p className="text-[12px] text-destructive">{skillFormError}</p>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowSkillDialog(false)} className="h-9 rounded-[10px]">
+                {t("settings.actions.cancel")}
+              </Button>
+              <Button type="button" onClick={handleSaveSkill} disabled={skillFormBusy} className="h-9 rounded-[10px]">
+                {skillFormBusy ? t("settings.actions.saving") : t("settings.actions.save")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Skill view dialog */}
+        <Dialog open={showSkillView} onOpenChange={setShowSkillView}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>{tx("settings.groups.viewSkillTitle", "View skill: {name}").replace("{name}", viewingSkillName)}</DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap rounded-[10px] border bg-muted/30 p-4 text-[13px] font-mono">
+                {viewingSkillContent}
+              </pre>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowSkillView(false)} className="h-9 rounded-[10px]">
+                {t("settings.actions.close")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  // Group list view
+  return (
+    <div className="space-y-7">
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <SettingsSectionTitle>{tx("settings.sections.groups", "Groups")}</SettingsSectionTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCreate(true)}
+            className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {tx("settings.groups.create", "Create group")}
+          </Button>
+        </div>
+        {loading ? (
+          <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t("settings.status.loading")}
+          </div>
+        ) : error ? (
+          <div className="flex h-32 items-center justify-center text-sm text-destructive">{error}</div>
+        ) : (
+          <SettingsGroup>
+            {!groups || groups.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
+            ) : (
+              groups.map((g) => (
+                <div key={g.id} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
+                  <button
+                    type="button"
+                    className="text-left flex-1"
+                    onClick={() => setSelectedGroupId(g.id)}
+                  >
+                    <div className="text-[13px] font-medium">{g.displayName || g.name}</div>
+                    <div className="text-[12px] text-muted-foreground">{g.name}</div>
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-muted-foreground">
+                      {g.id.slice(0, 8)}...
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(g.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </SettingsGroup>
+        )}
+      </section>
+
+      {/* Create group dialog */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{tx("settings.groups.createTitle", "Create group")}</DialogTitle>
+            <DialogDescription>
+              {tx("settings.groups.createDescription", "Create a new group for shared skills and settings.")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.groups.name", "Name")}</label>
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder={tx("settings.groups.namePlaceholder", "e.g. engineering")}
+                className="h-9 rounded-[10px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.groups.displayName", "Display name")}</label>
+              <Input
+                value={newDisplayName}
+                onChange={(e) => setNewDisplayName(e.target.value)}
+                placeholder={tx("settings.groups.displayNamePlaceholder", "e.g. Engineering Team")}
+                className="h-9 rounded-[10px]"
+              />
+            </div>
+            {createError ? (
+              <p className="text-[12px] text-destructive">{createError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowCreate(false)} className="h-9 rounded-[10px]">
+              {t("settings.actions.cancel")}
+            </Button>
+            <Button type="button" onClick={handleCreate} disabled={createBusy} className="h-9 rounded-[10px]">
+              {createBusy ? t("settings.actions.saving") : t("settings.actions.save")}
             </Button>
           </DialogFooter>
         </DialogContent>

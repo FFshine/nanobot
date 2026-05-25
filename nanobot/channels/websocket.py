@@ -66,6 +66,19 @@ from nanobot.webui.mcp_presets_api import (
 from nanobot.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
+    group_create,
+    group_delete,
+    group_detail_payload,
+    group_member_add,
+    group_member_remove,
+    group_members_list,
+    group_skill_content,
+    group_skill_create,
+    group_skill_delete,
+    group_skill_update,
+    group_skills_list,
+    group_update,
+    groups_list_payload,
     settings_payload,
     update_agent_settings,
     update_image_generation_settings,
@@ -914,6 +927,57 @@ class WebSocketChannel(BaseChannel):
         if mcp_action is not None:
             return await self._handle_settings_mcp_presets(request, mcp_action)
 
+        # -- Group API routes --
+        if got == "/api/groups":
+            return self._handle_groups_list(request)
+
+        if got == "/api/groups/create":
+            return self._handle_group_create(request)
+
+        m = re.match(r"^/api/groups/([^/]+)$", got)
+        if m:
+            return self._handle_group_detail(request, m.group(1))
+
+        m = re.match(r"^/api/groups/([^/]+)/update$", got)
+        if m:
+            return self._handle_group_update(request, m.group(1))
+
+        m = re.match(r"^/api/groups/([^/]+)/delete$", got)
+        if m:
+            return self._handle_group_delete(request, m.group(1))
+
+        m = re.match(r"^/api/groups/([^/]+)/members$", got)
+        if m:
+            return self._handle_group_members(request, m.group(1))
+
+        m = re.match(r"^/api/groups/([^/]+)/members/add$", got)
+        if m:
+            return self._handle_group_member_add(request, m.group(1))
+
+        m = re.match(r"^/api/groups/([^/]+)/members/([^/]+)/remove$", got)
+        if m:
+            return self._handle_group_member_remove(request, m.group(1), m.group(2))
+
+        m = re.match(r"^/api/groups/([^/]+)/skills$", got)
+        if m:
+            return self._handle_group_skills(request, m.group(1))
+
+        m = re.match(r"^/api/groups/([^/]+)/skills/create$", got)
+        if m:
+            return self._handle_group_skill_create(request, m.group(1))
+
+        m = re.match(r"^/api/groups/([^/]+)/skills/([^/]+)/content$", got)
+        if m:
+            return self._handle_group_skill_content(request, m.group(1), m.group(2))
+
+        m = re.match(r"^/api/groups/([^/]+)/skills/([^/]+)/update$", got)
+        if m:
+            return self._handle_group_skill_update(request, m.group(1), m.group(2))
+
+        m = re.match(r"^/api/groups/([^/]+)/skills/([^/]+)/delete$", got)
+        if m:
+            return self._handle_group_skill_delete(request, m.group(1), m.group(2))
+
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
         if m:
             return self._handle_session_messages(request, m.group(1))
@@ -1232,6 +1296,145 @@ class WebSocketChannel(BaseChannel):
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
         return _http_json_response({"ok": True})
+
+    # -- Group API handlers --------------------------------------------------
+
+    def _handle_groups_list(self, request: WsRequest) -> Response:
+        if not self._require_auth(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(groups_list_payload())
+
+    def _handle_group_create(self, request: WsRequest) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        query = _parse_query(request.path)
+        name = (_query_first(query, "name") or "").strip()
+        if not name:
+            return _http_error(400, "name is required")
+        display_name = _query_first(query, "display_name") or ""
+        settings_str = _query_first(query, "settings") or "{}"
+        try:
+            import json
+            settings = json.loads(settings_str)
+        except (json.JSONDecodeError, TypeError):
+            return _http_error(400, "invalid settings JSON")
+        try:
+            result = group_create(name=name, display_name=display_name, settings=settings)
+        except Exception:
+            return _http_error(409, "Group name already exists")
+        return _http_json_response(result)
+
+    def _handle_group_detail(self, request: WsRequest, group_id: str) -> Response:
+        if not self._require_auth(request):
+            return _http_error(401, "Unauthorized")
+        detail = group_detail_payload(group_id)
+        if detail is None:
+            return _http_error(404, "Group not found")
+        return _http_json_response(detail)
+
+    def _handle_group_update(self, request: WsRequest, group_id: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        query = _parse_query(request.path)
+        display_name = _query_first(query, "display_name")
+        settings_str = _query_first(query, "settings")
+        settings = None
+        if settings_str is not None:
+            try:
+                import json
+                settings = json.loads(settings_str)
+            except (json.JSONDecodeError, TypeError):
+                return _http_error(400, "invalid settings JSON")
+        result = group_update(group_id, display_name=display_name, settings=settings)
+        if result is None:
+            return _http_error(404, "Group not found")
+        return _http_json_response(result)
+
+    def _handle_group_delete(self, request: WsRequest, group_id: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        ok = group_delete(group_id)
+        if not ok:
+            return _http_error(404, "Group not found")
+        return _http_json_response({"deleted": group_id})
+
+    def _handle_group_members(self, request: WsRequest, group_id: str) -> Response:
+        if not self._require_auth(request):
+            return _http_error(401, "Unauthorized")
+        members = group_members_list(group_id)
+        if members is None:
+            return _http_error(404, "Group not found")
+        return _http_json_response(members)
+
+    def _handle_group_member_add(self, request: WsRequest, group_id: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        query = _parse_query(request.path)
+        user_id = (_query_first(query, "user_id") or "").strip()
+        role = (_query_first(query, "role") or "member").strip()
+        if not user_id:
+            return _http_error(400, "user_id is required")
+        try:
+            result = group_member_add(group_id, user_id, role=role)
+        except Exception:
+            return _http_error(400, "Failed to add member")
+        return _http_json_response(result)
+
+    def _handle_group_member_remove(self, request: WsRequest, group_id: str, user_id: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        ok = group_member_remove(group_id, user_id)
+        if not ok:
+            return _http_error(404, "Member not found")
+        return _http_json_response({"removed": user_id})
+
+    def _handle_group_skills(self, request: WsRequest, group_id: str) -> Response:
+        if not self._require_auth(request):
+            return _http_error(401, "Unauthorized")
+        skills = group_skills_list(group_id)
+        if skills is None:
+            return _http_error(404, "Group not found")
+        return _http_json_response(skills)
+
+    def _handle_group_skill_create(self, request: WsRequest, group_id: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        query = _parse_query(request.path)
+        name = (_query_first(query, "name") or "").strip()
+        content = _query_first(query, "content") or ""
+        if not name:
+            return _http_error(400, "name is required")
+        import re as _re
+        if not _re.match(r"^[a-z0-9_-]+$", name):
+            return _http_error(400, "invalid skill name")
+        result = group_skill_create(group_id, name, content)
+        return _http_json_response(result)
+
+    def _handle_group_skill_content(self, request: WsRequest, group_id: str, name: str) -> Response:
+        if not self._require_auth(request):
+            return _http_error(401, "Unauthorized")
+        content = group_skill_content(group_id, name)
+        if content is None:
+            return _http_error(404, "Skill not found")
+        return _http_json_response(content)
+
+    def _handle_group_skill_update(self, request: WsRequest, group_id: str, name: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        query = _parse_query(request.path)
+        content = _query_first(query, "content")
+        if content is None:
+            return _http_error(400, "missing content")
+        result = group_skill_update(group_id, name, content)
+        return _http_json_response({"ok": True, "name": result["name"]})
+
+    def _handle_group_skill_delete(self, request: WsRequest, group_id: str, name: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        ok = group_skill_delete(group_id, name)
+        if not ok:
+            return _http_error(404, "Skill not found")
+        return _http_json_response({"deleted": name})
 
     def _with_settings_restart_state(
         self,

@@ -56,5 +56,62 @@ class User:
         return cls(**d)
 
 
+@dataclass
+class Group:
+    id: str
+    name: str
+    display_name: str = ""
+    settings: dict = field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "displayName": self.display_name,
+            "settings": self.settings,
+            "createdAt": self.created_at,
+            "updatedAt": self.updated_at,
+        }
+
+    @classmethod
+    def from_row(cls, row: object) -> Group:
+        if hasattr(row, "keys"):
+            d = {k: row[k] for k in row.keys()}
+        else:
+            d = dict(row)
+        d["settings"] = (
+            json.loads(d["settings"]) if isinstance(d.get("settings"), str) else d.get("settings", {})
+        )
+        return cls(**d)
+
+
+@dataclass
+class GroupMember:
+    group_id: str
+    user_id: str
+    role: str = "member"  # "admin" | "member"
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
+
+    def to_dict(self) -> dict:
+        return {
+            "groupId": self.group_id,
+            "userId": self.user_id,
+            "role": self.role,
+        }
+
+    @classmethod
+    def from_row(cls, row: object) -> GroupMember:
+        if hasattr(row, "keys"):
+            d = {k: row[k] for k in row.keys()}
+        else:
+            d = dict(row)
+        return cls(**d)
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()

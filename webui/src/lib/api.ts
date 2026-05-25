@@ -494,3 +494,198 @@ export async function deleteUser(
 ): Promise<{ ok: boolean }> {
   return request(`${base}/api/auth/users/${encodeURIComponent(userId)}/delete`, token);
 }
+
+// -- Group management (admin only) --------------------------------------------
+
+export interface GroupsListPayload {
+  groups: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    settings: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+
+export async function fetchGroups(
+  token: string,
+  base: string = "",
+): Promise<GroupsListPayload> {
+  return request<GroupsListPayload>(`${base}/api/groups`, token);
+}
+
+export async function createGroup(
+  token: string,
+  name: string,
+  displayName: string,
+  settings: Record<string, unknown> = {},
+  base: string = "",
+): Promise<{ id: string; name: string; displayName: string; settings: Record<string, unknown> }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  if (displayName) query.set("display_name", displayName);
+  query.set("settings", JSON.stringify(settings));
+  return request(`${base}/api/groups/create?${query}`, token);
+}
+
+export async function updateGroup(
+  token: string,
+  groupId: string,
+  displayName?: string,
+  settings?: Record<string, unknown>,
+  base: string = "",
+): Promise<{ id: string; name: string; displayName: string; settings: Record<string, unknown> }> {
+  const query = new URLSearchParams();
+  if (displayName !== undefined) query.set("display_name", displayName);
+  if (settings !== undefined) query.set("settings", JSON.stringify(settings));
+  return request(`${base}/api/groups/${encodeURIComponent(groupId)}/update?${query}`, token);
+}
+
+export async function deleteGroup(
+  token: string,
+  groupId: string,
+  base: string = "",
+): Promise<{ deleted: string }> {
+  return request<{ deleted: string }>(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/delete`,
+    token,
+  );
+}
+
+export interface GroupDetailPayload {
+  id: string;
+  name: string;
+  displayName: string;
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  members: Array<{ userId: string; role: string }>;
+}
+
+export async function fetchGroupDetail(
+  token: string,
+  groupId: string,
+  base: string = "",
+): Promise<GroupDetailPayload> {
+  return request<GroupDetailPayload>(`${base}/api/groups/${encodeURIComponent(groupId)}`, token);
+}
+
+export interface GroupMembersPayload {
+  groupId: string;
+  members: Array<{
+    userId: string;
+    username: string;
+    displayName: string;
+    role: string;
+  }>;
+}
+
+export async function fetchGroupMembers(
+  token: string,
+  groupId: string,
+  base: string = "",
+): Promise<GroupMembersPayload> {
+  return request<GroupMembersPayload>(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/members`,
+    token,
+  );
+}
+
+export async function addGroupMember(
+  token: string,
+  groupId: string,
+  userId: string,
+  role: string = "member",
+  base: string = "",
+): Promise<{ groupId: string; userId: string; role: string }> {
+  const query = new URLSearchParams();
+  query.set("user_id", userId);
+  query.set("role", role);
+  return request(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/members/add?${query}`,
+    token,
+  );
+}
+
+export async function removeGroupMember(
+  token: string,
+  groupId: string,
+  userId: string,
+  base: string = "",
+): Promise<{ removed: string }> {
+  return request(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}/remove`,
+    token,
+  );
+}
+
+export interface GroupSkillsPayload {
+  skills: Array<{ name: string; path: string; source: string }>;
+}
+
+export async function fetchGroupSkills(
+  token: string,
+  groupId: string,
+  base: string = "",
+): Promise<GroupSkillsPayload> {
+  return request<GroupSkillsPayload>(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/skills`,
+    token,
+  );
+}
+
+export async function fetchGroupSkillContent(
+  token: string,
+  groupId: string,
+  name: string,
+  base: string = "",
+): Promise<{ name: string; content: string }> {
+  return request<{ name: string; content: string }>(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/skills/${encodeURIComponent(name)}/content`,
+    token,
+  );
+}
+
+export async function createGroupSkill(
+  token: string,
+  groupId: string,
+  name: string,
+  content: string,
+  base: string = "",
+): Promise<{ name: string; path: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  query.set("content", content);
+  return request(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/skills/create?${query}`,
+    token,
+  );
+}
+
+export async function updateGroupSkill(
+  token: string,
+  groupId: string,
+  name: string,
+  content: string,
+  base: string = "",
+): Promise<{ ok: boolean; name: string }> {
+  const query = new URLSearchParams();
+  query.set("content", content);
+  return request(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/skills/${encodeURIComponent(name)}/update?${query}`,
+    token,
+  );
+}
+
+export async function deleteGroupSkill(
+  token: string,
+  groupId: string,
+  name: string,
+  base: string = "",
+): Promise<{ deleted: string }> {
+  return request(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/skills/${encodeURIComponent(name)}/delete`,
+    token,
+  );
+}

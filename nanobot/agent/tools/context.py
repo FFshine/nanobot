@@ -8,6 +8,12 @@ from typing import Any, Callable, Protocol, runtime_checkable
 
 _current_workspace: ContextVar[Path | None] = ContextVar("nanobot_workspace", default=None)
 _current_user_role: ContextVar[str] = ContextVar("nanobot_user_role", default="")
+_current_group_workspaces: ContextVar[list[Path]] = ContextVar(
+    "nanobot_group_workspaces", default=[]
+)
+_current_effective_disabled_skills: ContextVar[set[str]] = ContextVar(
+    "nanobot_effective_disabled_skills", default=set()
+)
 
 
 def current_workspace() -> Path | None:
@@ -32,6 +38,26 @@ def bind_user_role(role: str) -> Token:
     to restore the previous value.
     """
     return _current_user_role.set(role)
+
+
+def current_group_workspaces() -> list[Path]:
+    """Return the per-turn group workspace paths, or empty list."""
+    return _current_group_workspaces.get()
+
+
+def bind_group_workspaces(workspaces: list[Path]) -> None:
+    """Set the per-turn group workspaces for skill loading."""
+    _current_group_workspaces.set(workspaces)
+
+
+def current_effective_disabled_skills() -> set[str]:
+    """Return the per-turn effective disabled skills (user + group merged)."""
+    return _current_effective_disabled_skills.get()
+
+
+def bind_effective_disabled_skills(skills: set[str]) -> None:
+    """Set the per-turn effective disabled skills."""
+    _current_effective_disabled_skills.set(skills)
 
 
 def is_workspace_restricted_for_user(config_restrict: bool) -> bool:

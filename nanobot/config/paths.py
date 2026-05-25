@@ -92,6 +92,15 @@ def is_default_workspace(workspace: str | Path | None, user_id: str = "") -> boo
     return current.resolve(strict=False) == CLI_WORKSPACE.resolve(strict=False)
 
 
+def get_group_workspace_path(group_id: str) -> Path:
+    """Return the workspace path for a group.
+
+    Group workspaces live under ``~/.nanobot/workspaces/groups/{group_id}/``
+    and hold group-level skills and settings shared by all group members.
+    """
+    return ensure_dir(Path.home() / ".nanobot" / "workspaces" / "groups" / group_id)
+
+
 def get_cli_history_path() -> Path:
     """Return the shared CLI history file path."""
     return Path.home() / ".nanobot" / "history" / "cli_history"

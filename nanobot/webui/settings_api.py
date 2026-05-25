@@ -831,3 +831,152 @@ def _describe_cron_schedule(job: Any) -> str:
     if s.kind == "cron":
         return f"Cron: {s.expr or ''}"
     return str(s.kind)
+
+
+# ---------------------------------------------------------------------------
+# Group API helpers
+# ---------------------------------------------------------------------------
+
+
+def groups_list_payload() -> dict[str, Any]:
+    from nanobot.auth import list_groups
+
+    groups = list_groups()
+    return {
+        "groups": [
+            {
+                "id": g.id,
+                "name": g.name,
+                "displayName": g.display_name,
+                "settings": g.settings,
+                "createdAt": g.created_at,
+                "updatedAt": g.updated_at,
+            }
+            for g in groups
+        ]
+    }
+
+
+def group_detail_payload(group_id: str) -> dict[str, Any] | None:
+    from nanobot.auth import get_group, get_group_members
+
+    group = get_group(group_id)
+    if group is None:
+        return None
+    members = get_group_members(group_id)
+    return {
+        "id": group.id,
+        "name": group.name,
+        "displayName": group.display_name,
+        "settings": group.settings,
+        "createdAt": group.created_at,
+        "updatedAt": group.updated_at,
+        "members": [
+            {"userId": m.user_id, "role": m.role} for m in members
+        ],
+    }
+
+
+def group_create(name: str, display_name: str = "", settings: dict | None = None) -> dict[str, Any]:
+    from nanobot.auth import create_group
+
+    g = create_group(name=name, display_name=display_name, settings=settings)
+    return g.to_dict()
+
+
+def group_update(group_id: str, display_name: str | None = None, settings: dict | None = None) -> dict[str, Any] | None:
+    from nanobot.auth import update_group
+
+    g = update_group(group_id, display_name=display_name, settings=settings)
+    return g.to_dict() if g else None
+
+
+def group_delete(group_id: str) -> bool:
+    from nanobot.auth import delete_group
+
+    return delete_group(group_id)
+
+
+def group_members_list(group_id: str) -> dict[str, Any] | None:
+    from nanobot.auth import get_group, get_group_members, get_user_by_id
+
+    group = get_group(group_id)
+    if group is None:
+        return None
+    members = get_group_members(group_id)
+    member_list: list[dict[str, Any]] = []
+    for m in members:
+        user = get_user_by_id(m.user_id)
+        member_list.append({
+            "userId": m.user_id,
+            "username": user.username if user else m.user_id,
+            "displayName": user.display_name if user else "",
+            "role": m.role,
+        })
+    return {"groupId": group_id, "members": member_list}
+
+
+def group_member_add(group_id: str, user_id: str, role: str = "member") -> dict[str, Any]:
+    from nanobot.auth import add_group_member
+
+    m = add_group_member(group_id, user_id, role=role)
+    return m.to_dict()
+
+
+def group_member_remove(group_id: str, user_id: str) -> bool:
+    from nanobot.auth import remove_group_member
+
+    return remove_group_member(group_id, user_id)
+
+
+def group_skills_list(group_id: str) -> dict[str, Any] | None:
+    from nanobot.agent.skills import SkillsLoader
+    from nanobot.auth import get_group
+    from nanobot.config.paths import get_group_workspace_path
+
+    group = get_group(group_id)
+    if group is None:
+        return None
+    gws = get_group_workspace_path(group_id)
+    skills_dir = gws / "skills"
+    loader = SkillsLoader(gws, builtin_skills_dir=skills_dir)
+    entries = loader._skill_entries_from_dir(skills_dir, "group") if skills_dir.is_dir() else []
+    return {"skills": entries}
+
+
+def group_skill_content(group_id: str, name: str) -> dict[str, Any] | None:
+    from nanobot.config.paths import get_group_workspace_path
+
+    gws = get_group_workspace_path(group_id)
+    skill_file = gws / "skills" / name / "SKILL.md"
+    if not skill_file.is_file():
+        return None
+    return {"name": name, "content": skill_file.read_text(encoding="utf-8")}
+
+
+def group_skill_create(group_id: str, name: str, content: str) -> dict[str, Any]:
+    from nanobot.config.paths import get_group_workspace_path
+
+    gws = get_group_workspace_path(group_id)
+    skill_dir = gws / "skills" / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(content, encoding="utf-8")
+    return {"name": name, "path": str(skill_file)}
+
+
+def group_skill_update(group_id: str, name: str, content: str) -> dict[str, Any]:
+    return group_skill_create(group_id, name, content)
+
+
+def group_skill_delete(group_id: str, name: str) -> bool:
+    import shutil
+
+    from nanobot.config.paths import get_group_workspace_path
+
+    gws = get_group_workspace_path(group_id)
+    skill_dir = gws / "skills" / name
+    if not skill_dir.is_dir():
+        return False
+    shutil.rmtree(skill_dir)
+    return True

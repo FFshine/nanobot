@@ -574,6 +574,33 @@ export interface User {
   settings: Record<string, unknown>;
 }
 
+/** Group info from /api/groups */
+export interface Group {
+  id: string;
+  name: string;
+  displayName: string;
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupDetail extends Group {
+  members: Array<{ userId: string; role: string }>;
+}
+
+export interface GroupMember {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: string;
+}
+
+export interface GroupSkill {
+  name: string;
+  path: string;
+  source: string;
+}
+
 /** Response from GET /webui/bootstrap */
 export interface BootPayload {
   token?: string;

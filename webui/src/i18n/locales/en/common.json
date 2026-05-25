@@ -96,6 +96,7 @@
       "skills": "Skills",
       "cron": "Cron",
       "users": "Users",
+      "groups": "Groups",
       "runtime": "Runtime",
       "advanced": "Advanced"
     },
@@ -121,7 +122,8 @@
       "builtinSkills": "Builtin Skills",
       "userSkills": "User Skills",
       "cronJobs": "Scheduled Jobs",
-      "users": "Users"
+      "users": "Users",
+      "groups": "Groups"
     },
     "skills": {
       "deleteConfirm": "Delete skill '{name}'?",
@@ -425,6 +427,41 @@
       "usernameAndPasswordRequired": "Username and password are required",
       "passwordMinLength": "Password must be at least 6 characters",
       "deleteConfirm": "Delete this user?"
+    },
+    "groups": {
+      "create": "Create group",
+      "createTitle": "Create group",
+      "createDescription": "Create a new group for shared skills and settings.",
+      "name": "Name",
+      "namePlaceholder": "e.g. engineering",
+      "nameRequired": "Group name is required",
+      "nameFormat": "Only lowercase letters, digits, hyphens, and underscores",
+      "displayName": "Display name",
+      "displayNamePlaceholder": "e.g. Engineering Team",
+      "members": "Members",
+      "addMember": "Add member",
+      "addMemberTitle": "Add member",
+      "addMemberDescription": "Enter the user ID to add to this group.",
+      "user": "User",
+      "selectUser": "Select a user...",
+      "userId": "User ID",
+      "userIdPlaceholder": "Enter user ID",
+      "role": "Role",
+      "roleMember": "Member",
+      "roleAdmin": "Admin",
+      "groupSettings": "Group Settings",
+      "settingsHint": "JSON object with optional keys: disabled_skills (string array), model, provider.",
+      "removeMemberConfirm": "Remove this member?",
+      "deleteConfirm": "Delete this group? This cannot be undone.",
+      "addSkill": "Add skill",
+      "createSkillTitle": "Create skill",
+      "editSkillTitle": "Edit skill: {name}",
+      "viewSkillTitle": "View skill: {name}",
+      "skillDescription": "Skills teach the agent how to perform specific tasks.",
+      "skillName": "Name",
+      "skillNamePlaceholder": "e.g. my-skill",
+      "skillNameRequired": "Skill name is required",
+      "deleteSkillConfirm": "Delete skill '{name}'?"
     }
   },
   "chat": {
