@@ -73,7 +73,8 @@
     "language": {
       "label": "语言",
       "ariaLabel": "切换语言"
-    }
+    },
+    "apps": "应用"
   },
   "settings": {
     "backToChat": "返回对话",
@@ -95,10 +96,7 @@
       "mcp": "MCP",
       "runtime": "运行时",
       "advanced": "高级",
-      "profile": "配置文件",
-      "skills": "技能",
-      "cron": "Cron",
-      "users": "用户"
+      "apps": "应用"
     },
     "sections": {
       "interface": "界面",
@@ -112,17 +110,12 @@
       "webSearch": "网页搜索",
       "webBehavior": "行为",
       "cliApps": "CLI 应用",
-      "mcp": "MCP",
+      "mcp": "MCP 服务",
       "identity": "身份",
       "safety": "安全",
       "capabilities": "能力",
       "integrations": "集成",
-      "profileFiles": "配置文件",
-      "skills": "技能",
-      "builtinSkills": "系统技能",
-      "userSkills": "用户技能",
-      "cronJobs": "计划任务",
-      "users": "用户"
+      "apps": "应用"
     },
     "models": {
       "selectModel": "选择模型",
@@ -419,13 +412,19 @@
       "configureProvider": "配置服务商",
       "missingCredential": "启用图片生成前，请先配置这个服务商。"
     },
-    "skills": {
-      "deleteConfirm": "删除技能 '{name}'？",
-      "editTitle": "编辑技能：{name}",
-      "viewTitle": "查看技能：{name}"
-    },
-    "cron": {
-      "deleteConfirm": "删除计划任务 '{name}'？"
+    "apps": {
+      "description": "添加 nanobot 可在聊天中使用的 App CLI 和 MCP 服务。",
+      "cliLabel": "CLI",
+      "mcpLabel": "MCP",
+      "filterAll": "全部",
+      "filterCli": "CLI 应用",
+      "filterMcp": "MCP 服务",
+      "enabledSummary": "已启用 {{count}} 个",
+      "caption": "{{cli}} CLI · {{mcp}} MCP",
+      "searchPlaceholder": "搜索应用",
+      "featured": "精选",
+      "loading": "正在加载应用...",
+      "empty": "没有符合筛选条件的应用。"
     }
   },
   "chat": {
@@ -641,8 +640,8 @@
         }
       },
       "mentions": {
-        "ariaLabel": "应用和 MCP",
-        "label": "插件",
+        "ariaLabel": "应用",
+        "label": "应用",
         "cliGroup": "CLI 应用",
         "mcpGroup": "MCP 服务",
         "cliBadge": "CLI",

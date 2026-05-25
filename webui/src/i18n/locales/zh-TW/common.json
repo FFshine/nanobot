@@ -73,7 +73,8 @@
     "language": {
       "label": "語言",
       "ariaLabel": "切換語言"
-    }
+    },
+    "apps": "應用"
   },
   "settings": {
     "backToChat": "返回對話",
@@ -95,10 +96,7 @@
       "advanced": "Advanced",
       "cliApps": "CLI 應用",
       "mcp": "MCP",
-      "profile": "設定檔",
-      "skills": "技能",
-      "cron": "Cron",
-      "users": "使用者"
+      "apps": "應用"
     },
     "sections": {
       "interface": "介面",
@@ -116,13 +114,8 @@
       "capabilities": "功能",
       "integrations": "Integrations",
       "cliApps": "CLI 應用",
-      "mcp": "MCP",
-      "profileFiles": "設定檔",
-      "skills": "技能",
-      "builtinSkills": "系統技能",
-      "userSkills": "使用者技能",
-      "cronJobs": "排程工作",
-      "users": "使用者"
+      "mcp": "MCP 服務",
+      "apps": "應用"
     },
     "rows": {
       "theme": "主題",
@@ -419,13 +412,19 @@
     "legal": {
       "thirdPartyBrands": "產品名稱、標誌與品牌均屬於其各自擁有者。使用僅為識別用途，並不代表背書。"
     },
-    "skills": {
-      "deleteConfirm": "刪除技能 '{name}'？",
-      "editTitle": "編輯技能：{name}",
-      "viewTitle": "檢視技能：{name}"
-    },
-    "cron": {
-      "deleteConfirm": "刪除排程任務 '{name}'？"
+    "apps": {
+      "description": "新增 nanobot 可在聊天中使用的 App CLI 與 MCP 服務。",
+      "cliLabel": "CLI",
+      "mcpLabel": "MCP",
+      "filterAll": "全部",
+      "filterCli": "CLI 應用",
+      "filterMcp": "MCP 服務",
+      "enabledSummary": "已啟用 {{count}} 個",
+      "caption": "{{cli}} CLI · {{mcp}} MCP",
+      "searchPlaceholder": "搜尋應用",
+      "featured": "精選",
+      "loading": "正在載入應用...",
+      "empty": "沒有符合篩選條件的應用。"
     }
   },
   "chat": {
@@ -653,8 +652,8 @@
         "io": "無法讀取這個檔案"
       },
       "mentions": {
-        "ariaLabel": "應用和 MCP",
-        "label": "插件",
+        "ariaLabel": "應用",
+        "label": "應用",
         "cliGroup": "CLI 應用",
         "mcpGroup": "MCP 服務",
         "cliBadge": "CLI",
