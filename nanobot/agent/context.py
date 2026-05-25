@@ -61,8 +61,24 @@ class ContextBuilder:
     def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None):
         self.workspace = workspace
         self.timezone = timezone
-        self.memory = MemoryStore(workspace)
+        self._memory = MemoryStore(workspace)
+        self._memory_stores: dict[Path, MemoryStore] = {workspace: self._memory}
         self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
+
+    @property
+    def memory(self) -> MemoryStore:
+        """Return the MemoryStore for the current workspace context.
+
+        When a per-user workspace is bound via ``bind_workspace()`` (set during
+        ``_process_message``), the returned store reads/writes that user's
+        isolated memory files.  Otherwise the global default store is used.
+        """
+        from nanobot.agent.tools.context import current_workspace
+
+        ws = current_workspace() or self.workspace
+        if ws not in self._memory_stores:
+            self._memory_stores[ws] = MemoryStore(ws)
+        return self._memory_stores[ws]
 
     def build_system_prompt(
         self,

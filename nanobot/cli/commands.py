@@ -817,12 +817,14 @@ def _run_gateway(
             and hasattr(session_manager, "save")
         ):
             key = session_key or _channel_session_key(msg.channel, msg.chat_id)
-            session = session_manager.get_or_create(key)
+            # Use per-user SessionManager when the key embeds a user_id
+            sm = agent._session_manager_for(key) if hasattr(agent, "_session_manager_for") else session_manager
+            session = sm.get_or_create(key)
             extra: dict[str, Any] = {"_channel_delivery": True}
             if msg.media:
                 extra["media"] = list(msg.media)
             session.add_message("assistant", msg.content, **extra)
-            session_manager.save(session)
+            sm.save(session)
         await bus.publish_outbound(msg)
 
     message_tool = getattr(agent, "tools", {}).get("message")
@@ -835,7 +837,7 @@ def _run_gateway(
         # Dream is an internal job — run directly, not through the agent loop.
         if job.name == "dream":
             try:
-                await agent.dream.run()
+                await agent.run_dream_for_all_users()
                 logger.info("Dream cron job completed")
             except Exception:
                 logger.exception("Dream cron job failed")
@@ -984,6 +986,21 @@ def _run_gateway(
         )
 
     hb_cfg = config.gateway.heartbeat
+
+    def _collect_user_workspaces() -> list[Path]:
+        """Collect all per-user workspace paths."""
+        from nanobot.auth import list_users
+
+        paths: list[Path] = []
+        try:
+            for user in list_users():
+                uid = getattr(user, "id", "")
+                if uid:
+                    paths.append(get_workspace_path(user_id=uid))
+        except Exception:
+            pass
+        return paths
+
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         llm_runtime=agent.llm_runtime,
@@ -992,6 +1009,7 @@ def _run_gateway(
         interval_s=hb_cfg.interval_s,
         enabled=hb_cfg.enabled,
         timezone=config.agents.defaults.timezone,
+        user_workspaces=_collect_user_workspaces(),
     )
 
     if channels.enabled_channels:

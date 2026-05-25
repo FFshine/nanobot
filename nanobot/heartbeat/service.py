@@ -61,8 +61,10 @@ class HeartbeatService:
         enabled: bool = True,
         timezone: str | None = None,
         llm_runtime: LLMRuntimeResolver | None = None,
+        user_workspaces: list[Path] | None = None,
     ):
         self.workspace = workspace
+        self._user_workspaces: list[Path] = user_workspaces or []
         if llm_runtime is None:
             if provider is None or model is None:
                 raise ValueError("HeartbeatService requires either llm_runtime or provider/model")
@@ -76,14 +78,20 @@ class HeartbeatService:
         self._running = False
         self._task: asyncio.Task | None = None
 
+    def refresh_user_workspaces(self, workspaces: list[Path]) -> None:
+        """Update the list of per-user workspace paths to check."""
+        self._user_workspaces = list(workspaces)
+
     @property
     def heartbeat_file(self) -> Path:
         return self.workspace / "HEARTBEAT.md"
 
-    def _read_heartbeat_file(self) -> str | None:
-        if self.heartbeat_file.exists():
+    def _read_heartbeat_file(self, workspace: Path | None = None) -> str | None:
+        ws = workspace or self.workspace
+        hb_file = ws / "HEARTBEAT.md"
+        if hb_file.exists():
             try:
-                return self.heartbeat_file.read_text(encoding="utf-8")
+                return hb_file.read_text(encoding="utf-8")
             except Exception:
                 return None
         return None
@@ -188,52 +196,54 @@ class HeartbeatService:
         return True
 
     async def _tick(self) -> None:
-        """Execute a single heartbeat tick."""
+        """Execute a single heartbeat tick, checking all user workspaces."""
         from nanobot.utils.evaluator import evaluate_response
 
-        content = self._read_heartbeat_file()
-        if not content:
-            logger.debug("Heartbeat: HEARTBEAT.md missing or empty")
-            return
+        workspaces = self._user_workspaces if self._user_workspaces else [self.workspace]
 
-        logger.info("Heartbeat: checking for tasks...")
+        for ws in workspaces:
+            content = self._read_heartbeat_file(ws)
+            if not content:
+                continue
 
-        try:
-            action, tasks = await self._decide(content)
+            logger.info("Heartbeat: checking for tasks in {}", ws)
 
-            if action != "run":
-                logger.info("Heartbeat: OK (nothing to report)")
-                return
+            try:
+                action, tasks = await self._decide(content)
 
-            logger.info("Heartbeat: tasks found, executing...")
-            if self.on_execute:
-                response = await self.on_execute(tasks)
+                if action != "run":
+                    logger.info("Heartbeat: OK (nothing to report) for {}", ws)
+                    continue
 
-                if not response:
-                    logger.info("Heartbeat: no response from execution")
-                    return
+                logger.info("Heartbeat: tasks found in {}, executing...", ws)
+                if self.on_execute:
+                    response = await self.on_execute(tasks)
 
-                if not self._is_deliverable(response):
-                    logger.info(
-                        "Heartbeat: suppressed non-deliverable response ({})",
-                        response[:80],
+                    if not response:
+                        logger.info("Heartbeat: no response from execution")
+                        continue
+
+                    if not self._is_deliverable(response):
+                        logger.info(
+                            "Heartbeat: suppressed non-deliverable response ({})",
+                            response[:80],
+                        )
+                        continue
+
+                    llm = self._llm_runtime()
+                    should_notify = await evaluate_response(
+                        response, tasks, llm.provider, llm.model,
                     )
-                    return
-
-                llm = self._llm_runtime()
-                should_notify = await evaluate_response(
-                    response, tasks, llm.provider, llm.model,
-                )
-                if should_notify and self.on_notify:
-                    logger.info("Heartbeat: completed, delivering response")
-                    await self.on_notify(response)
-                else:
-                    logger.info("Heartbeat: silenced by post-run evaluation")
-        except Exception:
-            logger.exception("Heartbeat execution failed")
+                    if should_notify and self.on_notify:
+                        logger.info("Heartbeat: completed, delivering response")
+                        await self.on_notify(response)
+                    else:
+                        logger.info("Heartbeat: silenced by post-run evaluation")
+            except Exception:
+                logger.exception("Heartbeat execution failed for {}", ws)
 
     async def trigger_now(self) -> str | None:
-        """Manually trigger a heartbeat."""
+        """Manually trigger a heartbeat (checks global workspace only)."""
         content = self._read_heartbeat_file()
         if not content:
             return None

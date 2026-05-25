@@ -246,6 +246,11 @@ class AgentLoop:
         self.sessions = session_manager or SessionManager(workspace)
         # Per-user SessionManager instances (lazily created, keyed by user_id)
         self._user_session_managers: dict[str, SessionManager] = {}
+        # Per-user MemoryStore and Consolidator instances for history isolation
+        self._user_memory_stores: dict[str, MemoryStore] = {}
+        self._user_consolidators: dict[str, Consolidator] = {}
+        self._user_dreams: dict[str, Dream] = {}
+        self._consolidation_ratio = consolidation_ratio
         self._webui_turns = WebuiTurnCoordinator(
             bus=self.bus,
             sessions=self.sessions,
@@ -302,6 +307,7 @@ class AgentLoop:
             sessions=self.sessions,
             consolidator=self.consolidator,
             session_ttl_minutes=session_ttl_minutes,
+            consolidator_resolver=lambda sk: self._consolidator_for(sk),
         )
         self.dream = Dream(
             store=self.context.memory,
@@ -395,7 +401,11 @@ class AgentLoop:
         self.runner.provider = provider
         self.subagents.set_provider(provider, model)
         self.consolidator.set_provider(provider, model, context_window_tokens)
+        for uc in self._user_consolidators.values():
+            uc.set_provider(provider, model, context_window_tokens)
         self.dream.set_provider(provider, model)
+        for ud in self._user_dreams.values():
+            ud.set_provider(provider, model)
         self._provider_signature = snapshot.signature
         if publish_update and self._runtime_model_publisher is not None:
             self._runtime_model_publisher(
@@ -640,6 +650,81 @@ class AgentLoop:
             sync_workspace_templates(ws, silent=True)
             self._user_session_managers[user_id] = SessionManager(ws)
         return self._user_session_managers[user_id]
+
+    def _get_user_memory_store(self, user_id: str) -> MemoryStore:
+        """Return the per-user MemoryStore for *user_id*."""
+        if user_id not in self._user_memory_stores:
+            ws = get_workspace_path(user_id=user_id)
+            sync_workspace_templates(ws, silent=True)
+            self._user_memory_stores[user_id] = MemoryStore(ws)
+        return self._user_memory_stores[user_id]
+
+    def _get_user_consolidator(self, user_id: str) -> Consolidator:
+        """Return the per-user Consolidator for *user_id*."""
+        if user_id not in self._user_consolidators:
+            sm = self._session_manager_for(f"websocket:{user_id}:dummy")
+            store = self._get_user_memory_store(user_id)
+            self._user_consolidators[user_id] = Consolidator(
+                store=store,
+                provider=self.provider,
+                model=self.model,
+                sessions=sm,
+                context_window_tokens=self.context_window_tokens,
+                build_messages=self.context.build_messages,
+                get_tool_definitions=self.tools.get_definitions,
+                max_completion_tokens=self.provider.generation.max_tokens,
+                consolidation_ratio=self._consolidation_ratio,
+            )
+        return self._user_consolidators[user_id]
+
+    def _consolidator_for(self, session_key: str) -> Consolidator:
+        """Return the Consolidator to use for *session_key*."""
+        user_id = self._user_id_from_session_key(session_key)
+        if user_id:
+            return self._get_user_consolidator(user_id)
+        return self.consolidator
+
+    def _get_user_dream(self, user_id: str) -> Dream:
+        """Return the per-user Dream instance for *user_id*."""
+        if user_id not in self._user_dreams:
+            store = self._get_user_memory_store(user_id)
+            dream = Dream(store=store, provider=self.provider, model=self.model)
+            # Inherit config from the global dream (already configured by the gateway)
+            dream.model = self.dream.model
+            dream.max_batch_size = self.dream.max_batch_size
+            dream.max_iterations = self.dream.max_iterations
+            dream.annotate_line_ages = self.dream.annotate_line_ages
+            self._user_dreams[user_id] = dream
+        return self._user_dreams[user_id]
+
+    async def run_dream_for_all_users(self) -> None:
+        """Run Dream for every known user (called by the dream cron job)."""
+        from nanobot.auth import list_users
+
+        try:
+            users = list_users()
+        except Exception:
+            logger.exception("Dream: failed to list users")
+            return
+
+        if not users:
+            # Legacy / no-users setup: run the global dream
+            try:
+                await self.dream.run()
+            except Exception:
+                logger.exception("Dream failed for global workspace")
+            return
+
+        for user in users:
+            user_id = getattr(user, "id", "")
+            if not user_id:
+                continue
+            try:
+                dream = self._get_user_dream(user_id)
+                await dream.run()
+                logger.info("Dream completed for user {}", user_id)
+            except Exception:
+                logger.exception("Dream failed for user {}", user_id)
 
     def _replay_token_budget(self) -> int:
         """Derive a token budget for session history replay from the context window."""
@@ -1045,7 +1130,7 @@ class AgentLoop:
         if pending:
             logger.info("Memory compact triggered for session {}", key)
 
-        await self.consolidator.maybe_consolidate_by_tokens(
+        await self._consolidator_for(key).maybe_consolidate_by_tokens(
             session,
             replay_max_messages=self._max_messages,
         )
@@ -1092,7 +1177,7 @@ class AgentLoop:
         self._clear_runtime_checkpoint(session)
         self._session_manager_for(key).save(session)
         self._schedule_background(
-            self.consolidator.maybe_consolidate_by_tokens(
+            self._consolidator_for(key).maybe_consolidate_by_tokens(
                 session,
                 replay_max_messages=self._max_messages,
             )
@@ -1297,7 +1382,7 @@ class AgentLoop:
         return "dispatch"
 
     async def _state_build(self, ctx: TurnContext) -> str:
-        await self.consolidator.maybe_consolidate_by_tokens(
+        await self._consolidator_for(ctx.session_key).maybe_consolidate_by_tokens(
             ctx.session,
             replay_max_messages=self._max_messages,
         )
@@ -1380,7 +1465,7 @@ class AgentLoop:
         self._clear_runtime_checkpoint(ctx.session)
         self._session_manager_for(ctx.session_key).save(ctx.session)
         self._schedule_background(
-            self.consolidator.maybe_consolidate_by_tokens(
+            self._consolidator_for(ctx.session_key).maybe_consolidate_by_tokens(
                 ctx.session,
                 replay_max_messages=self._max_messages,
             )
