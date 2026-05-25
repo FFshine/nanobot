@@ -1701,7 +1701,7 @@ function NewModelConfigurationDialog({
               type="submit"
               variant="outline"
               className="rounded-full"
-              disabled={!canSave || saving || providers.length === 0}
+              disabled={!canSave || saving || providers.length === 0 || !isAdmin()}
             >
               {saving ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -1774,6 +1774,7 @@ function ModelsSettings({
                   value={providerValue}
                   emptyLabel={t("settings.byok.noConfiguredProviders")}
                   showProviderLogos={showBrandLogos}
+                  disabled={!isAdmin()}
                   onChange={(provider) => setForm((prev) => ({ ...prev, provider }))}
                 />
               </SettingsRow>
@@ -2012,7 +2013,7 @@ function ProvidersSettings({
                 size="sm"
                 variant="outline"
                 onClick={() => onSaveProvider(provider.name)}
-                disabled={saving || missingRequiredApiKey || missingOptionalCredential}
+                disabled={saving || !isAdmin() || missingRequiredApiKey || missingOptionalCredential}
                 className="rounded-full"
               >
                 {saving ? t("settings.actions.saving") : tx("settings.providers.saveProvider", "Save provider")}
@@ -2134,6 +2135,7 @@ function ImageGenerationSettings({
               onChange={(enabled) => onChangeForm((prev) => ({ ...prev, enabled }))}
               ariaLabel={tx("settings.rows.imageGeneration", "Image generation")}
               label={form.enabled ? tx("settings.values.on", "On") : tx("settings.values.off", "Off")}
+              disabled={!isAdmin()}
             />
           </SettingsRow>
           <SettingsRow
@@ -2145,6 +2147,7 @@ function ImageGenerationSettings({
               value={form.provider}
               emptyLabel={tx("settings.image.selectProvider", "Select provider")}
               showProviderLogos={showBrandLogos}
+              disabled={!isAdmin()}
               onChange={(provider) => onChangeForm((prev) => ({ ...prev, provider }))}
             />
           </SettingsRow>
@@ -2158,7 +2161,7 @@ function ImageGenerationSettings({
                   ? tx("settings.values.configured", "Configured")
                   : tx("settings.values.notConfigured", "Not configured")}
               </StatusPill>
-              {!providerConfigured ? (
+              {!providerConfigured && isAdmin() ? (
                 <Button size="sm" variant="outline" onClick={onOpenProviders} className="rounded-full">
                   {tx("settings.image.configureProvider", "Configure provider")}
                 </Button>
@@ -2183,6 +2186,7 @@ function ImageGenerationSettings({
             <Input
               value={form.model}
               onChange={(event) => onChangeForm((prev) => ({ ...prev, model: event.target.value }))}
+              disabled={!isAdmin()}
               className="h-8 w-[min(300px,70vw)] rounded-full text-[13px]"
             />
           </SettingsRow>
@@ -2194,6 +2198,7 @@ function ImageGenerationSettings({
               providers={aspectOptions}
               value={form.defaultAspectRatio}
               emptyLabel={tx("settings.image.selectAspect", "Select aspect")}
+              disabled={!isAdmin()}
               onChange={(defaultAspectRatio) =>
                 onChangeForm((prev) => ({ ...prev, defaultAspectRatio }))
               }
@@ -2207,6 +2212,7 @@ function ImageGenerationSettings({
               providers={sizeOptions}
               value={form.defaultImageSize}
               emptyLabel={tx("settings.image.selectSize", "Select size")}
+              disabled={!isAdmin()}
               onChange={(defaultImageSize) =>
                 onChangeForm((prev) => ({ ...prev, defaultImageSize }))
               }
@@ -2220,6 +2226,7 @@ function ImageGenerationSettings({
               value={form.maxImagesPerTurn}
               min={1}
               max={8}
+              disabled={!isAdmin()}
               onChange={(maxImagesPerTurn) =>
                 onChangeForm((prev) => ({ ...prev, maxImagesPerTurn }))
               }
@@ -2325,6 +2332,7 @@ function WebSettings({
               value={form.provider}
               emptyLabel={t("settings.byok.webSearch.selectProvider")}
               showProviderLogos={showBrandLogos}
+              disabled={!isAdmin()}
               onChange={onChangeProvider}
             />
           </SettingsRow>
@@ -2352,6 +2360,7 @@ function WebSettings({
                       onChange={(event) =>
                         onChangeForm((prev) => ({ ...prev, apiKey: event.target.value }))
                       }
+                      disabled={!isAdmin()}
                       placeholder={
                         hasExistingSecret
                           ? t("settings.byok.apiKeyConfiguredPlaceholder")
@@ -2359,6 +2368,7 @@ function WebSettings({
                       }
                       className="h-9 rounded-full pr-11 text-[13px]"
                     />
+                    {isAdmin() ? (
                     <Button
                       type="button"
                       variant="ghost"
@@ -2375,12 +2385,14 @@ function WebSettings({
                         <Eye className="h-3.5 w-3.5" aria-hidden />
                       )}
                     </Button>
+                    ) : null}
                   </>
                 ) : (
                   <>
                     <div className="flex h-9 items-center rounded-full border border-input bg-background px-3 pr-11 text-[13px] text-muted-foreground">
                       {settings.web_search.api_key_hint ?? t("settings.byok.configuredKeyHint")}
                     </div>
+                    {isAdmin() ? (
                     <Button
                       type="button"
                       variant="ghost"
@@ -2391,6 +2403,7 @@ function WebSettings({
                     >
                       <Pencil className="h-3.5 w-3.5" aria-hidden />
                     </Button>
+                    ) : null}
                   </>
                 )}
               </div>
@@ -2407,6 +2420,7 @@ function WebSettings({
                 onChange={(event) =>
                   onChangeForm((prev) => ({ ...prev, baseUrl: event.target.value }))
                 }
+                disabled={!isAdmin()}
                 placeholder={t("settings.byok.webSearch.baseUrlPlaceholder")}
                 className="h-9 w-[280px] rounded-full text-[13px]"
               />
@@ -2426,6 +2440,7 @@ function WebSettings({
               value={form.maxResults ?? settings.web_search.max_results}
               min={1}
               max={10}
+              disabled={!isAdmin()}
               onChange={(maxResults) => onChangeForm((prev) => ({ ...prev, maxResults }))}
             />
           </SettingsRow>
@@ -2437,6 +2452,7 @@ function WebSettings({
               value={form.timeout ?? settings.web_search.timeout}
               min={1}
               max={120}
+              disabled={!isAdmin()}
               onChange={(timeout) => onChangeForm((prev) => ({ ...prev, timeout }))}
               suffix="s"
             />
@@ -2450,6 +2466,7 @@ function WebSettings({
               onChange={(useJinaReader) => onChangeForm((prev) => ({ ...prev, useJinaReader }))}
               ariaLabel={tx("settings.rows.jinaReader", "Jina reader")}
               label={effectiveJinaReader ? tx("settings.values.on", "On") : tx("settings.values.off", "Off")}
+              disabled={!isAdmin()}
             />
           </SettingsRow>
           <RestartSettingsFooter
@@ -3707,6 +3724,7 @@ function RuntimeSettings({
             <Input
               value={form.botName}
               onChange={(event) => setForm((prev) => ({ ...prev, botName: event.target.value }))}
+              disabled={!isAdmin()}
               className="h-8 w-[220px] rounded-full text-[13px]"
             />
           </SettingsRow>
@@ -3714,6 +3732,7 @@ function RuntimeSettings({
             <Input
               value={form.botIcon}
               onChange={(event) => setForm((prev) => ({ ...prev, botIcon: event.target.value }))}
+              disabled={!isAdmin()}
               className="h-8 w-[120px] rounded-full text-center text-[13px]"
             />
           </SettingsRow>
@@ -3721,6 +3740,7 @@ function RuntimeSettings({
             <TimezonePicker
               value={form.timezone}
               onChange={(timezone) => setForm((prev) => ({ ...prev, timezone }))}
+              disabled={!isAdmin()}
             />
           </SettingsRow>
           <RestartSettingsFooter
@@ -3750,7 +3770,7 @@ function RuntimeSettings({
                 size="sm"
                 variant="outline"
                 onClick={onRestart}
-                disabled={isRestarting}
+                disabled={isRestarting || !isAdmin()}
                 className="rounded-full"
               >
                 {isRestarting ? (
@@ -4292,9 +4312,11 @@ function UsersSettings({
 function TimezonePicker({
   value,
   onChange,
+  disabled = false,
 }: {
   value: string;
   onChange: (timezone: string) => void;
+  disabled?: boolean;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -4308,9 +4330,11 @@ function TimezonePicker({
         <Button
           type="button"
           variant="outline"
+          disabled={disabled}
           className={cn(
             "h-8 w-[220px] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
             "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
+            disabled && "opacity-50 cursor-not-allowed",
           )}
         >
           <span className="truncate">{value || tx("settings.timezone.select", "Select timezone")}</span>
@@ -4375,27 +4399,29 @@ function ProviderPicker({
   emptyLabel,
   showProviderLogos = false,
   onChange,
+  disabled = false,
 }: {
   providers: Array<{ name: string; label: string }>;
   value: string;
   emptyLabel: string;
   showProviderLogos?: boolean;
   onChange: (provider: string) => void;
+  disabled?: boolean;
 }) {
   const selectedProvider = providers.find((provider) => provider.name === value) ?? null;
-  const disabled = providers.length === 0;
+  const isDisabled = disabled || providers.length === 0;
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild disabled={disabled}>
+      <DropdownMenuTrigger asChild disabled={isDisabled}>
         <Button
           type="button"
           variant="outline"
-          disabled={disabled}
+          disabled={isDisabled}
           className={cn(
             "h-8 w-[210px] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
             "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
-            disabled && "text-muted-foreground",
+            isDisabled && "text-muted-foreground",
           )}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -5010,6 +5036,7 @@ function ModelPresetPicker({
             </DropdownMenuItem>
           );
         })}
+        {isAdmin() ? (
         <div className="mt-1 border-t border-border/55 pt-1">
           <DropdownMenuItem
             onSelect={onCreateConfiguration}
@@ -5024,6 +5051,7 @@ function ModelPresetPicker({
             <span>{tx("settings.models.addConfiguration", "Add configuration")}</span>
           </DropdownMenuItem>
         </div>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -5271,11 +5299,13 @@ function ToggleButton({
   onChange,
   ariaLabel,
   label,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   ariaLabel?: string;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -5283,13 +5313,16 @@ function ToggleButton({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel ?? label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[2px]",
         "transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        disabled && "opacity-50 cursor-not-allowed",
         checked
           ? "bg-[#2997FF] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)]"
-          : "bg-muted shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)] hover:bg-muted/80",
+          : "bg-muted shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)]",
+        !disabled && !checked && "hover:bg-muted/80",
       )}
     >
       <span
@@ -5311,12 +5344,14 @@ function NumberInput({
   max,
   onChange,
   suffix,
+  disabled = false,
 }: {
   value: number;
   min: number;
   max: number;
   onChange: (value: number) => void;
   suffix?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2">
@@ -5325,6 +5360,7 @@ function NumberInput({
         min={min}
         max={max}
         value={value}
+        disabled={disabled}
         onChange={(event) => {
           const parsed = Number(event.target.value);
           if (Number.isFinite(parsed)) onChange(parsed);
