@@ -443,6 +443,17 @@ export async function fetchCronJobs(
   return request<CronListPayload>(`${base}/api/settings/cron`, token);
 }
 
+export async function deleteCronJob(
+  jobId: string,
+  token: string,
+  base: string = "",
+): Promise<{ deleted: string }> {
+  return request<{ deleted: string }>(
+    `${base}/api/settings/cron/${encodeURIComponent(jobId)}/delete`,
+    token,
+  );
+}
+
 // -- User management (admin only) -------------------------------------------
 
 export interface UsersListPayload {

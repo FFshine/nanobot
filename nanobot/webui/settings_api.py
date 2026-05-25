@@ -793,6 +793,12 @@ def cron_list_payload(user_id: str, workspace_path: str) -> dict[str, Any]:
     return {"cron_jobs": jobs}
 
 
+def cron_delete_job(svc: Any, job_id: str) -> bool:
+    """Delete a cron job by id from *svc*. Returns True if deleted."""
+    result = svc.remove_job(job_id)
+    return result == "removed"
+
+
 def _describe_cron_schedule(job: Any) -> str:
     s = job.schedule
     if s is None:

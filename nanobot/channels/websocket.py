@@ -852,6 +852,10 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/settings/cron":
             return self._handle_settings_cron(request)
 
+        m = re.match(r"^/api/settings/cron/([^/]+)/delete$", got)
+        if m:
+            return self._handle_settings_cron_delete(request, m.group(1))
+
         m = re.match(r"^/api/settings/skills/([^/]+)/delete$", got)
         if m:
             return self._handle_settings_skill_delete(request, m.group(1))
@@ -1173,6 +1177,18 @@ class WebSocketChannel(BaseChannel):
 
         ws = self._get_user_workspace(user["id"])
         return _http_json_response(cron_list_payload(user["id"], str(ws)))
+
+    def _handle_settings_cron_delete(self, request: WsRequest, job_id: str) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from nanobot.webui.settings_api import cron_delete_job
+
+        svc = self._get_user_cron_service(user["id"])
+        ok = cron_delete_job(svc, job_id)
+        if not ok:
+            return _http_error(404, "Job not found")
+        return _http_json_response({"deleted": job_id})
 
     def _handle_settings_skill_delete(self, request: WsRequest, name: str) -> Response:
         user = self._require_auth(request)

@@ -75,6 +75,7 @@ import {
   fetchCliApps,
   fetchMcpPresets,
   fetchCronJobs,
+  deleteCronJob,
   fetchProfile,
   fetchSkills,
   deleteSkill,
@@ -478,13 +479,15 @@ export function SettingsView({
     return () => { cancelled = true; };
   }, [token]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchCronJobs(token)
-      .then((data) => { if (!cancelled) setCronJobs(data.cron_jobs); })
+  const loadCronJobs = useCallback((t: string) => {
+    fetchCronJobs(t)
+      .then((data) => setCronJobs(data.cron_jobs))
       .catch(() => {});
-    return () => { cancelled = true; };
-  }, [token]);
+  }, []);
+
+  useEffect(() => {
+    loadCronJobs(token);
+  }, [token, loadCronJobs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1137,7 +1140,7 @@ export function SettingsView({
           />
         );
       case "cron":
-        return <CronSettings jobs={cronJobs} />;
+        return <CronSettings jobs={cronJobs} token={token} onChanged={() => loadCronJobs(token)} />;
       case "users":
         return (
           <UsersSettings
@@ -4001,13 +4004,29 @@ function SkillsSettings({
   );
 }
 
-function CronSettings({ jobs }: { jobs: Array<{ id: string; name: string; enabled: boolean; schedule: string; next_run_ms: number | null }> | null }) {
+function CronSettings({
+  jobs,
+  token,
+  onChanged,
+}: {
+  jobs: Array<{ id: string; name: string; enabled: boolean; schedule: string; next_run_ms: number | null }> | null;
+  token: string;
+  onChanged: () => void;
+}) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const list = jobs ?? [];
   const formatTime = (ms: number | null) => {
     if (ms == null) return "—";
     return new Date(ms).toLocaleString();
+  };
+  const handleDelete = async (jobId: string) => {
+    try {
+      await deleteCronJob(jobId, token);
+      onChanged();
+    } catch {
+      // silently ignore
+    }
   };
   return (
     <div className="space-y-7">
@@ -4023,9 +4042,18 @@ function CronSettings({ jobs }: { jobs: Array<{ id: string; name: string; enable
                   <div className="text-[13px] font-medium">{j.name}</div>
                   <div className="text-[12px] text-muted-foreground">{j.schedule}</div>
                 </div>
-                <div className="text-right">
-                  <div className="text-[12px] font-medium">{j.enabled ? tx("settings.values.enabled", "Active") : tx("settings.values.disabled", "Paused")}</div>
-                  <div className="text-[12px] text-muted-foreground">{j.next_run_ms ? formatTime(j.next_run_ms) : "—"}</div>
+                <div className="flex items-center gap-3 text-right">
+                  <div>
+                    <div className="text-[12px] font-medium">{j.enabled ? tx("settings.values.enabled", "Active") : tx("settings.values.disabled", "Paused")}</div>
+                    <div className="text-[12px] text-muted-foreground">{j.next_run_ms ? formatTime(j.next_run_ms) : "—"}</div>
+                  </div>
+                  <button
+                    className="text-[11px] text-destructive hover:underline cursor-pointer"
+                    onClick={() => handleDelete(j.id)}
+                    aria-label={`Delete cron job ${j.name}`}
+                  >
+                    {tx("settings.cron.delete", "Delete")}
+                  </button>
                 </div>
               </div>
             ))
