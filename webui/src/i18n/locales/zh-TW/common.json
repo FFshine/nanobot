@@ -418,6 +418,14 @@
     },
     "legal": {
       "thirdPartyBrands": "產品名稱、標誌與品牌均屬於其各自擁有者。使用僅為識別用途，並不代表背書。"
+    },
+    "skills": {
+      "deleteConfirm": "刪除技能 '{name}'？",
+      "editTitle": "編輯技能：{name}",
+      "viewTitle": "檢視技能：{name}"
+    },
+    "cron": {
+      "deleteConfirm": "刪除排程任務 '{name}'？"
     }
   },
   "chat": {

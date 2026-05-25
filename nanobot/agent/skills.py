@@ -18,7 +18,9 @@ _STRIP_SKILL_FRONTMATTER = re.compile(
 )
 
 
-def link_builtin_skills(workspace: Path) -> None:
+def link_builtin_skills(
+    workspace: Path, builtin_skills_dir: Path | None = None
+) -> None:
     """Symlink builtin skill dirs into ``{workspace}/skills/``.
 
     Restricted users can only access paths inside their workspace, so
@@ -29,11 +31,12 @@ def link_builtin_skills(workspace: Path) -> None:
     Safe to call multiple times — existing links and user dirs are
     silently skipped.
     """
-    if not BUILTIN_SKILLS_DIR.is_dir():
+    src = builtin_skills_dir or BUILTIN_SKILLS_DIR
+    if not src.is_dir():
         return
     skills_dir = workspace / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
-    for builtin_dir in BUILTIN_SKILLS_DIR.iterdir():
+    for builtin_dir in src.iterdir():
         if not builtin_dir.is_dir():
             continue
         link_path = skills_dir / builtin_dir.name
@@ -91,7 +94,32 @@ class SkillsLoader:
         Returns:
             List of skill info dicts with 'name', 'path', 'source'.
         """
-        skills = self._skill_entries_from_dir(self._effective_workspace_skills, "user")
+        # Ensure builtin symlinks are current so new builtin skills appear
+        # in existing workspaces (idempotent — skips paths that already exist).
+        if self.builtin_skills and self.builtin_skills.exists():
+            link_builtin_skills(self.workspace, builtin_skills_dir=self.builtin_skills)
+
+        # Collect builtin names for symlink detection below.
+        builtin_names: set[str] = set()
+        if self.builtin_skills and self.builtin_skills.exists():
+            builtin_names = {
+                d.name
+                for d in self.builtin_skills.iterdir()
+                if d.is_dir() and (d / "SKILL.md").exists()
+            }
+
+        # Scan workspace skills, but skip entries that are symlinks to
+        # builtin skill dirs — those are handled by the builtin pass below
+        # so they get source="builtin" (no delete button in UI).
+        all_workspace = self._skill_entries_from_dir(self._effective_workspace_skills, "user")
+        user_skills: list[dict[str, str]] = []
+        for entry in all_workspace:
+            skill_dir = self._effective_workspace_skills / entry["name"]
+            if skill_dir.is_symlink() and entry["name"] in builtin_names:
+                continue
+            user_skills.append(entry)
+
+        skills = user_skills
         workspace_names = {entry["name"] for entry in skills}
         if self.builtin_skills and self.builtin_skills.exists():
             skills.extend(

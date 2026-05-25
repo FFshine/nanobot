@@ -418,6 +418,14 @@
     },
     "legal": {
       "thirdPartyBrands": "Los nombres, logotipos y marcas de productos pertenecen a sus respectivos propietarios. Su uso es solo identificativo y no implica respaldo."
+    },
+    "skills": {
+      "deleteConfirm": "¿Eliminar la habilidad '{name}'?",
+      "editTitle": "Editar habilidad: {name}",
+      "viewTitle": "Ver habilidad: {name}"
+    },
+    "cron": {
+      "deleteConfirm": "¿Eliminar la tarea programada '{name}'?"
     }
   },
   "chat": {

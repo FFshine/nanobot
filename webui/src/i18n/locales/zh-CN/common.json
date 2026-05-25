@@ -418,6 +418,14 @@
       "selectSize": "选择尺寸",
       "configureProvider": "配置服务商",
       "missingCredential": "启用图片生成前，请先配置这个服务商。"
+    },
+    "skills": {
+      "deleteConfirm": "删除技能 '{name}'？",
+      "editTitle": "编辑技能：{name}",
+      "viewTitle": "查看技能：{name}"
+    },
+    "cron": {
+      "deleteConfirm": "删除计划任务 '{name}'？"
     }
   },
   "chat": {

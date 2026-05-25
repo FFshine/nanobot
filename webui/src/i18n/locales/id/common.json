@@ -418,6 +418,14 @@
     },
     "legal": {
       "thirdPartyBrands": "Nama produk, logo, dan merek adalah milik pemiliknya masing-masing. Penggunaan hanya untuk identifikasi dan tidak menyiratkan dukungan."
+    },
+    "skills": {
+      "deleteConfirm": "Hapus skill '{name}'?",
+      "editTitle": "Edit skill: {name}",
+      "viewTitle": "Lihat skill: {name}"
+    },
+    "cron": {
+      "deleteConfirm": "Hapus cron job '{name}'?"
     }
   },
   "chat": {

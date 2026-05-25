@@ -418,6 +418,14 @@
     },
     "legal": {
       "thirdPartyBrands": "Tên sản phẩm, logo và thương hiệu thuộc về chủ sở hữu tương ứng. Việc sử dụng chỉ nhằm nhận diện và không ngụ ý được xác nhận."
+    },
+    "skills": {
+      "deleteConfirm": "Xóa kỹ năng '{name}'?",
+      "editTitle": "Chỉnh sửa kỹ năng: {name}",
+      "viewTitle": "Xem kỹ năng: {name}"
+    },
+    "cron": {
+      "deleteConfirm": "Xóa cron job '{name}'?"
     }
   },
   "chat": {

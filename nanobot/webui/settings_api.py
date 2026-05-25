@@ -708,12 +708,17 @@ def delete_user_skill(workspace_path: str, name: str) -> bool:
     from pathlib import Path
 
     skill_dir = _user_skill_dir(workspace_path, name)
-    if not skill_dir.is_dir():
+    if not skill_dir.is_dir() and not skill_dir.is_symlink():
         return False
     # Refuse to touch anything outside the workspace skills dir
     skills_root = (Path(workspace_path) / "skills").resolve()
     if not str(skill_dir.resolve()).startswith(str(skills_root)):
         raise WebUISettingsError("invalid skill path")
+    # Symlinks (e.g. builtin skill shims) — remove the link, not the target.
+    # shutil.rmtree follows symlinks and would destroy the builtin files.
+    if skill_dir.is_symlink():
+        skill_dir.unlink()
+        return True
     shutil.rmtree(skill_dir)
     return True
 

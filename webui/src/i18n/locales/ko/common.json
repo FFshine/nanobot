@@ -418,6 +418,14 @@
     },
     "legal": {
       "thirdPartyBrands": "제품 이름, 로고 및 브랜드는 각 소유자의 자산입니다. 사용은 식별 목적일 뿐 보증이나 제휴를 의미하지 않습니다."
+    },
+    "skills": {
+      "deleteConfirm": "'{name}' 스킬을 삭제하시겠습니까?",
+      "editTitle": "스킬 편집: {name}",
+      "viewTitle": "스킬 보기: {name}"
+    },
+    "cron": {
+      "deleteConfirm": "'{name}' 크론 작업을 삭제하시겠습니까?"
     }
   },
   "chat": {
