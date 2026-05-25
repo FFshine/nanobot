@@ -902,6 +902,7 @@ def _run_gateway(
         return response
 
     cron.on_job = on_cron_job
+    agent._on_cron_job = on_cron_job  # also used by per-user CronService instances
 
     def _webui_runtime_model_name() -> str | None:
         model = getattr(agent, "model", None)

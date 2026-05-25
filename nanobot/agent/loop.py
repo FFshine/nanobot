@@ -236,6 +236,7 @@ class AgentLoop:
         ):
             self._image_generation_provider_configs["openrouter"] = image_generation_provider_config
         self.cron_service = cron_service
+        self._on_cron_job: Callable[[Any], Any] | None = None
         self.restrict_to_workspace = restrict_to_workspace
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
@@ -708,6 +709,8 @@ class AgentLoop:
             ws = get_workspace_path(user_id=user_id)
             sync_workspace_templates(ws, silent=True)
             svc = CronService(ws / "cron" / "jobs.json")
+            if self._on_cron_job is not None:
+                svc.on_job = self._on_cron_job
             self._user_cron_services[user_id] = svc
             # Start the per-user cron loop in the background
             self._schedule_background(svc.start())
