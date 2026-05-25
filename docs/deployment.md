@@ -147,12 +147,10 @@ Use that exact path in the plist. It keeps the Python environment from your inst
   <array>
     <string>/Users/youruser/.local/bin/nanobot</string>
     <string>gateway</string>
-    <string>--workspace</string>
-    <string>/Users/youruser/.nanobot/workspace</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/youruser/.nanobot/workspace</string>
+  <string>/Users/youruser/.nanobot/workspaces/cli</string>
 
   <key>RunAtLoad</key>
   <true/>

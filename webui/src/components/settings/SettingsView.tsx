@@ -23,7 +23,6 @@ import {
   Gem,
   Globe2,
   Grid3X3,
-  HardDrive,
   Hexagon,
   ImageIcon,
   Info,
@@ -1468,13 +1467,6 @@ function OverviewSettings({
                 ? tx("settings.values.restartPending", "Restart pending")
                 : tx("settings.values.ready", "Ready")
             }
-            onClick={() => onSelectSection("runtime")}
-          />
-          <OverviewListRow
-            icon={HardDrive}
-            title={tx("settings.overview.workspace", "Workspace")}
-            value={settings.runtime.workspace_path}
-            caption={settings.runtime.config_path}
             onClick={() => onSelectSection("runtime")}
           />
         </SettingsGroup>
@@ -3783,7 +3775,6 @@ function RuntimeSettings({
             </SettingsRow>
           ) : null}
           <ReadOnlyRow title={t("settings.rows.configPath")} value={settings.runtime.config_path} />
-          <ReadOnlyRow title={tx("settings.rows.workspacePath", "Workspace path")} value={settings.runtime.workspace_path} />
           <ReadOnlyRow title={tx("settings.rows.heartbeat", "Heartbeat")} value={settings.runtime.heartbeat.enabled ? `${settings.runtime.heartbeat.interval_s}s` : tx("settings.values.disabled", "Disabled")} />
           <ReadOnlyRow title={tx("settings.rows.dream", "Dream")} value={settings.runtime.dream.schedule} />
           <ReadOnlyRow title={tx("settings.rows.unifiedSession", "Unified session")} value={settings.runtime.unified_session ? tx("settings.values.enabled", "Enabled") : tx("settings.values.disabled", "Disabled")} />
@@ -3801,7 +3792,6 @@ function AdvancedSettings({ settings }: { settings: SettingsPayload }) {
       <section>
         <SettingsSectionTitle>{tx("settings.sections.safety", "Safety")}</SettingsSectionTitle>
         <SettingsGroup>
-          <ReadOnlyRow title={tx("settings.rows.restrictWorkspace", "Restrict to workspace")} value={settings.advanced.restrict_to_workspace ? tx("settings.values.enabled", "Enabled") : tx("settings.values.disabled", "Disabled")} />
           <ReadOnlyRow title={tx("settings.rows.execTool", "Exec tool")} value={settings.advanced.exec_enabled ? tx("settings.values.enabled", "Enabled") : tx("settings.values.disabled", "Disabled")} />
           <ReadOnlyRow title={tx("settings.rows.execSandbox", "Exec sandbox")} value={settings.advanced.exec_sandbox ?? tx("settings.values.notAvailable", "Not available")} />
           <ReadOnlyRow title={tx("settings.rows.ssrfWhitelist", "SSRF whitelist")} value={String(settings.advanced.ssrf_whitelist_count)} />

@@ -703,7 +703,6 @@ describe("App layout", () => {
               },
               runtime: {
                 config_path: "/tmp/config.json",
-                workspace_path: "/tmp/workspace",
                 gateway_host: "127.0.0.1",
                 gateway_port: 18790,
                 heartbeat: {
@@ -720,7 +719,6 @@ describe("App layout", () => {
                 unified_session: false,
               },
               advanced: {
-                restrict_to_workspace: false,
                 ssrf_whitelist_count: 0,
                 mcp_server_count: 0,
                 exec_enabled: true,
@@ -951,7 +949,6 @@ describe("App layout", () => {
               },
               runtime: {
                 config_path: "/tmp/config.json",
-                workspace_path: "/tmp/workspace",
                 gateway_host: "127.0.0.1",
                 gateway_port: 18790,
                 heartbeat: {
@@ -968,7 +965,6 @@ describe("App layout", () => {
                 unified_session: false,
               },
               advanced: {
-                restrict_to_workspace: false,
                 ssrf_whitelist_count: 0,
                 mcp_server_count: 0,
                 exec_enabled: true,

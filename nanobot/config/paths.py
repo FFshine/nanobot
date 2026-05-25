@@ -64,26 +64,32 @@ def get_webui_dir(user_id: str = "") -> Path:
     return get_runtime_subdir("webui")
 
 
+CLI_WORKSPACE = Path.home() / ".nanobot" / "workspaces" / "cli"
+
+
 def get_workspace_path(workspace: str | None = None, user_id: str = "") -> Path:
     """Resolve and ensure the agent workspace path.
 
     When *user_id* is provided, the workspace is scoped to
     ``~/.nanobot/workspaces/{user_id}`` regardless of any explicit
     workspace override.  This keeps per-user data isolated.
+
+    Without a user_id, CLI/unauthenticated sessions use
+    ``~/.nanobot/workspaces/cli``.
     """
     if user_id and user_id != "__legacy__":
         return ensure_dir(Path.home() / ".nanobot" / "workspaces" / user_id)
-    path = Path(workspace).expanduser() if workspace else Path.home() / ".nanobot" / "workspace"
-    return ensure_dir(path)
+    if workspace:
+        return ensure_dir(Path(workspace).expanduser())
+    return ensure_dir(CLI_WORKSPACE)
 
 
 def is_default_workspace(workspace: str | Path | None, user_id: str = "") -> bool:
-    """Return whether a workspace resolves to nanobot's default workspace path."""
+    """Return whether a workspace resolves to the default CLI workspace path."""
     if user_id and user_id != "__legacy__":
         return True
-    current = Path(workspace).expanduser() if workspace is not None else Path.home() / ".nanobot" / "workspace"
-    default = Path.home() / ".nanobot" / "workspace"
-    return current.resolve(strict=False) == default.resolve(strict=False)
+    current = Path(workspace).expanduser() if workspace is not None else CLI_WORKSPACE
+    return current.resolve(strict=False) == CLI_WORKSPACE.resolve(strict=False)
 
 
 def get_cli_history_path() -> Path:

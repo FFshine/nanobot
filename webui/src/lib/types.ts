@@ -253,7 +253,6 @@ export interface SettingsPayload {
   };
   runtime: {
     config_path: string;
-    workspace_path: string;
     gateway_host: string;
     gateway_port: number;
     heartbeat: {
@@ -270,7 +269,6 @@ export interface SettingsPayload {
     unified_session: boolean;
   };
   advanced: {
-    restrict_to_workspace: boolean;
     ssrf_whitelist_count: number;
     mcp_server_count: number;
     exec_enabled: boolean;

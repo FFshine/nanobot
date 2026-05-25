@@ -398,7 +398,6 @@ def main(
 
 @app.command()
 def onboard(
-    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
     wizard: bool = typer.Option(False, "--wizard", help="Use interactive wizard"),
 ):
@@ -413,15 +412,10 @@ def onboard(
     else:
         config_path = get_config_path()
 
-    def _apply_workspace_override(loaded: Config) -> Config:
-        if workspace:
-            loaded.agents.defaults.workspace = workspace
-        return loaded
-
     # Create or update config
     if config_path.exists():
         if wizard:
-            config = _apply_workspace_override(load_config(config_path))
+            config = load_config(config_path)
         else:
             console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
             console.print(
@@ -431,17 +425,17 @@ def onboard(
                 "  [bold]N[/bold] = refresh config, keeping existing values and adding new fields"
             )
             if typer.confirm("Overwrite?"):
-                config = _apply_workspace_override(Config())
+                config = Config()
                 save_config(config, config_path)
                 console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
             else:
-                config = _apply_workspace_override(load_config(config_path))
+                config = load_config(config_path)
                 save_config(config, config_path)
                 console.print(
                     f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)"
                 )
     else:
-        config = _apply_workspace_override(Config())
+        config = Config()
         # In wizard mode, don't save yet - the wizard will handle saving if should_save=True
         if not wizard:
             save_config(config, config_path)
@@ -540,8 +534,8 @@ def _model_display(config: Config) -> tuple[str, str]:
     return resolved.model, tag
 
 
-def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
-    """Load config and optionally override the active workspace."""
+def _load_runtime_config(config: str | None = None) -> Config:
+    """Load config."""
     from nanobot.config.loader import load_config, resolve_config_env_vars, set_config_path
 
     config_path = None
@@ -559,8 +553,6 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
     _warn_deprecated_config_keys(config_path)
-    if workspace:
-        loaded.agents.defaults.workspace = workspace
     return loaded
 
 
@@ -596,10 +588,20 @@ def _migrate_cron_store(config: "Config") -> None:
 
 
 def _maybe_migrate_to_per_user_workspaces(global_workspace: Path) -> None:
-    """One-time migration: copy global workspace contents to the admin user's
-    per-user workspace, so existing data is not lost after the isolation change."""
+    """One-time migration: copy old global workspace to the CLI workspace,
+    and copy global workspace contents to the admin's per-user workspace."""
     from nanobot.auth import list_users
+    from nanobot.config.paths import CLI_WORKSPACE
 
+    import shutil
+
+    # Migrate old ~/.nanobot/workspace → ~/.nanobot/workspaces/cli
+    old_workspace = Path.home() / ".nanobot" / "workspace"
+    if old_workspace.exists() and not CLI_WORKSPACE.exists():
+        console.print(f"[yellow]→[/yellow] Migrating workspace to CLI: {CLI_WORKSPACE}")
+        shutil.copytree(str(old_workspace), str(CLI_WORKSPACE), dirs_exist_ok=True)
+
+    # Migrate global workspace to admin per-user workspace
     per_user_root = Path.home() / ".nanobot" / "workspaces"
     users = list_users()
     admin_id = getattr(users[0], "id", "") if users else ""
@@ -610,7 +612,6 @@ def _maybe_migrate_to_per_user_workspaces(global_workspace: Path) -> None:
         return
     if not global_workspace.exists():
         return
-    import shutil
 
     console.print(f"[yellow]→[/yellow] Migrating workspace to per-user: {target}")
     shutil.copytree(str(global_workspace), str(target), dirs_exist_ok=True)
@@ -627,7 +628,6 @@ def serve(
     host: str | None = typer.Option(None, "--host", "-H", help="Bind address"),
     timeout: float | None = typer.Option(None, "--timeout", "-t", help="Per-request timeout (seconds)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show nanobot runtime logs"),
-    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Start the OpenAI-compatible API server (/v1/chat/completions)."""
@@ -649,7 +649,7 @@ def serve(
     else:
         logger.disable("nanobot")
 
-    runtime_config = _load_runtime_config(config, workspace)
+    runtime_config = _load_runtime_config(config)
     api_cfg = runtime_config.api
     host = host if host is not None else api_cfg.host
     port = port if port is not None else api_cfg.port
@@ -702,7 +702,6 @@ def serve(
 @app.command()
 def gateway(
     port: int | None = typer.Option(None, "--port", "-p", help="Gateway port"),
-    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
@@ -721,7 +720,7 @@ def gateway(
             colorize=None,
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
-    cfg = _load_runtime_config(config, workspace)
+    cfg = _load_runtime_config(config)
     _run_gateway(cfg, port=port)
 
 
@@ -1149,7 +1148,6 @@ def _run_gateway(
 def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
-    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
@@ -1161,7 +1159,7 @@ def agent(
     from nanobot.cron.service import CronService
     from nanobot.providers.image_generation import image_gen_provider_configs
 
-    config = _load_runtime_config(config, workspace)
+    config = _load_runtime_config(config)
     sync_workspace_templates(config.workspace_path)
 
     bus = MessageBus()
@@ -1537,12 +1535,10 @@ def status():
 
     config_path = get_config_path()
     config = load_config()
-    workspace = config.workspace_path
 
     console.print(f"{__logo__} nanobot Status\n")
 
     console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
-    console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
 
     if config_path.exists():
         from nanobot.providers.registry import PROVIDERS

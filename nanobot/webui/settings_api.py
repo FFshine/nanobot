@@ -294,7 +294,6 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
         },
         "runtime": {
             "config_path": str(get_config_path().expanduser()),
-            "workspace_path": str(config.workspace_path),
             "gateway_host": config.gateway.host,
             "gateway_port": config.gateway.port,
             "heartbeat": {
@@ -311,7 +310,6 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
             "unified_session": defaults.unified_session,
         },
         "advanced": {
-            "restrict_to_workspace": config.tools.restrict_to_workspace,
             "ssrf_whitelist_count": len(config.tools.ssrf_whitelist),
             "mcp_server_count": len(config.tools.mcp_servers),
             "exec_enabled": exec_config.enable,
