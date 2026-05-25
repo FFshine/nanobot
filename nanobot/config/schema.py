@@ -346,17 +346,8 @@ class Config(BaseSettings):
 
     @property
     def workspace_path(self) -> Path:
-        """Get expanded workspace path.
-
-        Silently upgrades the legacy ``~/.nanobot/workspace`` default to
-        ``~/.nanobot/workspaces/cli`` so existing config files don't keep
-        creating the old directory.
-        """
-        path = Path(self.agents.defaults.workspace).expanduser()
-        legacy = Path.home() / ".nanobot" / "workspace"
-        if path.resolve() == legacy.resolve():
-            return Path.home() / ".nanobot" / "workspaces" / "cli"
-        return path
+        """Get expanded workspace path."""
+        return Path(self.agents.defaults.workspace).expanduser()
 
     def _match_provider(
         self, model: str | None = None,
