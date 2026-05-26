@@ -8,8 +8,12 @@ from typing import Any, Callable, Protocol, runtime_checkable
 
 _current_workspace: ContextVar[Path | None] = ContextVar("nanobot_workspace", default=None)
 _current_user_role: ContextVar[str] = ContextVar("nanobot_user_role", default="")
+_current_user_id: ContextVar[str] = ContextVar("nanobot_user_id", default="")
 _current_group_workspaces: ContextVar[list[Path]] = ContextVar(
     "nanobot_group_workspaces", default=[]
+)
+_current_admin_group_workspaces: ContextVar[list[Path]] = ContextVar(
+    "nanobot_admin_group_workspaces", default=[]
 )
 _current_effective_disabled_skills: ContextVar[set[str]] = ContextVar(
     "nanobot_effective_disabled_skills", default=set()
@@ -19,6 +23,16 @@ _current_effective_disabled_skills: ContextVar[set[str]] = ContextVar(
 def current_workspace() -> Path | None:
     """Return the per-turn workspace override, or None."""
     return _current_workspace.get()
+
+
+def current_user_id() -> str:
+    """Return the per-turn user ID, or empty string if not set."""
+    return _current_user_id.get()
+
+
+def bind_user_id(user_id: str) -> None:
+    """Set the per-turn user ID for all tools in this async task."""
+    _current_user_id.set(user_id)
 
 
 def bind_workspace(workspace: Path) -> None:
@@ -48,6 +62,16 @@ def current_group_workspaces() -> list[Path]:
 def bind_group_workspaces(workspaces: list[Path]) -> None:
     """Set the per-turn group workspaces for skill loading."""
     _current_group_workspaces.set(workspaces)
+
+
+def current_admin_group_workspaces() -> list[Path]:
+    """Return group workspaces where the user has admin role, or empty list."""
+    return _current_admin_group_workspaces.get()
+
+
+def bind_admin_group_workspaces(workspaces: list[Path]) -> None:
+    """Set the per-turn admin-only group workspaces (write access)."""
+    _current_admin_group_workspaces.set(workspaces)
 
 
 def current_effective_disabled_skills() -> set[str]:

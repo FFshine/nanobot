@@ -450,8 +450,9 @@ def _http_response(
 
 
 def _http_error(status: int, message: str | None = None) -> Response:
-    body = (message or http.HTTPStatus(status).phrase).encode("utf-8")
-    return _http_response(body, status=status)
+    msg = message or http.HTTPStatus(status).phrase
+    body = json.dumps({"error": msg, "status": status}, ensure_ascii=False).encode("utf-8")
+    return _http_response(body, status=status, content_type="application/json; charset=utf-8")
 
 
 def _bearer_token(headers: Any) -> str | None:
@@ -854,6 +855,8 @@ class WebSocketChannel(BaseChannel):
         # 3. Auth endpoints
         if got == "/api/auth/me":
             return self._handle_auth_me(request)
+        if got == "/api/me/groups":
+            return self._handle_me_groups(request, connection)
         if got == "/api/auth/setup":
             return self._handle_auth_setup(request)
         if got == "/api/auth/users":
@@ -1128,6 +1131,40 @@ class WebSocketChannel(BaseChannel):
             return _http_error(401, "Unauthorized")
         return _http_json_response({"user": user})
 
+    def _handle_me_groups(self, request: WsRequest, connection: Any) -> Response:
+        """Return the authenticated user's group memberships with roles."""
+        user = self._require_auth(request)
+        if user is not None:
+            user_id = user["id"]
+        elif _is_localhost(connection):
+            query = _parse_query(request.path)
+            user_id = (_query_first(query, "user_id") or "").strip()
+            if not user_id:
+                return _http_error(400, "user_id required")
+        else:
+            return _http_error(401, "Unauthorized")
+        try:
+            from nanobot.auth import get_user_groups, get_group_members
+
+            groups = get_user_groups(user_id)
+            result = []
+            for g in groups:
+                role = "member"
+                for m in get_group_members(g.id):
+                    if m.user_id == user_id:
+                        role = m.role
+                        break
+                result.append({
+                    "id": g.id,
+                    "name": g.name,
+                    "displayName": g.display_name,
+                    "role": role,
+                })
+            return _http_json_response({"groups": result})
+        except Exception as e:
+            logger.warning("Failed to fetch user groups: {}", e)
+            return _http_error(500, str(e))
+
     def _handle_auth_setup(self, request: WsRequest) -> Response:
         """Create the first admin user when no users exist."""
         if get_user_count() > 0:
@@ -1293,6 +1330,17 @@ class WebSocketChannel(BaseChannel):
         from pathlib import Path
 
         from nanobot.agent.skills import SkillsLoader
+        from nanobot.agent.tools.context import bind_group_workspaces
+
+        # Bind group workspaces so SkillsLoader can find group skills.
+        try:
+            from nanobot.auth import get_user_groups
+            from nanobot.config.paths import get_group_workspace_path
+
+            group_ws = [get_group_workspace_path(g.id) for g in get_user_groups(user["id"])]
+            bind_group_workspaces(group_ws)
+        except Exception:
+            pass
 
         ws = self._get_user_workspace(user["id"])
         loader = SkillsLoader(ws)

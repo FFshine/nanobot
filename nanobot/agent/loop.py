@@ -24,10 +24,13 @@ from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import (
+    bind_admin_group_workspaces,
     bind_effective_disabled_skills,
     bind_group_workspaces,
+    bind_user_id,
     bind_user_role,
     bind_workspace,
+    current_user_role,
 )
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
@@ -1262,6 +1265,7 @@ class AgentLoop:
         key = session_key or msg.session_key
         user_id = self._user_id_from_session_key(key)
         if user_id:
+            bind_user_id(user_id)
             bind_workspace(get_workspace_path(user_id=user_id))
             try:
                 from nanobot.auth import get_user_by_id
@@ -1270,27 +1274,41 @@ class AgentLoop:
                 if user is not None:
                     bind_user_role(user.role)
             except Exception:
-                pass
+                logger.exception("Failed to resolve user role for user {}", user_id)
 
             # Resolve group workspaces and merge group-level settings
             try:
-                from nanobot.auth import get_user_groups
+                from nanobot.auth import get_group_members, get_user_groups
 
                 groups = get_user_groups(user_id)
                 group_ws: list[Path] = []
+                admin_ws: list[Path] = []
                 group_disabled: set[str] = set()
+                user_role = current_user_role()
                 for g in groups:
-                    group_ws.append(get_group_workspace_path(g.id))
+                    ws_path = get_group_workspace_path(g.id)
+                    group_ws.append(ws_path)
+                    # Determine if user is admin of this group
+                    is_admin = user_role == "admin"
+                    if not is_admin:
+                        for m in get_group_members(g.id):
+                            if m.user_id == user_id and m.role == "admin":
+                                is_admin = True
+                                break
+                    if is_admin:
+                        admin_ws.append(ws_path)
                     gs = g.settings or {}
                     if isinstance(gs.get("disabled_skills"), list):
                         group_disabled.update(gs["disabled_skills"])
                 if group_ws:
                     bind_group_workspaces(group_ws)
+                if admin_ws:
+                    bind_admin_group_workspaces(admin_ws)
                 user_disabled = set(self.context.skills.disabled_skills)
                 if group_disabled or user_disabled:
                     bind_effective_disabled_skills(user_disabled | group_disabled)
             except Exception:
-                pass
+                logger.exception("Failed to resolve group workspaces for user {}", user_id)
 
         if msg.channel == "system":
             return await self._process_system_message(

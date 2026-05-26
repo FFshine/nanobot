@@ -66,6 +66,7 @@ class _FsTool(Tool):
         # time (role is bound per-turn, not at tool-creation time).
         from nanobot.agent.skills import BUILTIN_SKILLS_DIR
         from nanobot.agent.tools.context import (
+            current_admin_group_workspaces,
             current_group_workspaces,
             is_workspace_restricted_for_user,
         )
@@ -75,6 +76,10 @@ class _FsTool(Tool):
         if allowed_dir is None and is_workspace_restricted_for_user(False):
             allowed_dir = self._workspace
             extra_allowed.append(BUILTIN_SKILLS_DIR)
+        # All group members can read group workspaces; only admins get write access.
+        if for_write:
+            extra_allowed.extend(current_admin_group_workspaces())
+        else:
             extra_allowed.extend(current_group_workspaces())
         return resolve_workspace_path(
             path,

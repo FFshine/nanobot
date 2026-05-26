@@ -4958,6 +4958,7 @@ function GroupsSettings({ token }: { token: string }) {
   const [showSkillView, setShowSkillView] = useState(false);
   const [viewingSkillName, setViewingSkillName] = useState("");
   const [viewingSkillContent, setViewingSkillContent] = useState("");
+  const [viewingSkillError, setViewingSkillError] = useState("");
 
   const loadGroups = useCallback(async () => {
     setLoading(true);
@@ -5165,12 +5166,16 @@ function GroupsSettings({ token }: { token: string }) {
 
   const openViewSkill = async (name: string) => {
     if (!selectedGroupId) return;
+    setViewingSkillError("");
+    setViewingSkillContent("");
+    setViewingSkillName(name);
+    setShowSkillView(true);
     try {
       const data = await fetchGroupSkillContent(token, selectedGroupId, name);
-      setViewingSkillName(name);
-      setViewingSkillContent(data.content);
-      setShowSkillView(true);
-    } catch { /* ignore */ }
+      setViewingSkillContent(data.content || "");
+    } catch (e: any) {
+      setViewingSkillError(e?.message || String(e));
+    }
   };
 
   // Detail view for a selected group
@@ -5482,9 +5487,19 @@ function GroupsSettings({ token }: { token: string }) {
               <DialogTitle>{tx("settings.groups.viewSkillTitle", "View skill: {name}").replace("{name}", viewingSkillName)}</DialogTitle>
             </DialogHeader>
             <div className="py-2">
-              <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap rounded-[10px] border bg-muted/30 p-4 text-[13px] font-mono">
-                {viewingSkillContent}
-              </pre>
+              {viewingSkillError ? (
+                <div className="rounded-[10px] border border-red-200 bg-red-50 p-4 text-[13px] text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+                  {viewingSkillError}
+                </div>
+              ) : viewingSkillContent ? (
+                <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap rounded-[10px] border bg-muted/30 p-4 text-[13px] font-mono">
+                  {viewingSkillContent}
+                </pre>
+              ) : (
+                <div className="rounded-[10px] border bg-muted/20 p-8 text-center text-[13px] text-muted-foreground">
+                  {tx("settings.groups.skillContentEmpty", "Loading skill content...")}
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowSkillView(false)} className="h-9 rounded-[10px]">

@@ -12,12 +12,19 @@ from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.config.paths import get_media_dir
 
 
-def _bwrap(command: str, workspace: str, cwd: str) -> str:
+def _bwrap(
+    command: str,
+    workspace: str,
+    cwd: str,
+    group_workspaces: list[str] | None = None,
+) -> str:
     """Wrap command in a bubblewrap sandbox (requires bwrap in container).
 
     Only the workspace is bind-mounted read-write; its parent dir (which holds
     config.json) is hidden behind a fresh tmpfs.  The media directory is
     bind-mounted read-only so exec commands can read uploaded attachments.
+    Group workspace directories are bind-mounted read-write so admins can
+    manage shared group skills.
     """
     ws = Path(workspace).resolve()
     media = get_media_dir().resolve()
@@ -41,6 +48,14 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
         "--bind", str(ws), str(ws),
         "--ro-bind-try", str(media), str(media),  # read-only access to media
         "--ro-bind-try", str(BUILTIN_SKILLS_DIR), str(BUILTIN_SKILLS_DIR),
+    ]
+    # Bind-mount group workspace directories so the agent can read/write
+    # shared group skills from within the sandbox.
+    for gws in (group_workspaces or []):
+        gws_path = Path(gws).resolve()
+        if gws_path.exists():
+            args += ["--bind", str(gws_path), str(gws_path)]
+    args += [
         "--chdir", sandbox_cwd,
         "--", "sh", "-c", command,
     ]
@@ -50,8 +65,14 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
 _BACKENDS = {"bwrap": _bwrap}
 
 
-def wrap_command(sandbox: str, command: str, workspace: str, cwd: str) -> str:
+def wrap_command(
+    sandbox: str,
+    command: str,
+    workspace: str,
+    cwd: str,
+    group_workspaces: list[str] | None = None,
+) -> str:
     """Wrap *command* using the named sandbox backend."""
     if backend := _BACKENDS.get(sandbox):
-        return backend(command, workspace, cwd)
+        return backend(command, workspace, cwd, group_workspaces=group_workspaces)
     raise ValueError(f"Unknown sandbox backend {sandbox!r}. Available: {list(_BACKENDS)}")

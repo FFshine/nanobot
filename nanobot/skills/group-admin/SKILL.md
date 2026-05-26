@@ -11,12 +11,16 @@ description: Manage group-level skills for nanobot groups. Use when the user wan
 ~/.nanobot/workspaces/groups/{group_id}/
 └── skills/
     └── {skill-name}/
-        └── SKILL.md
+        ├── SKILL.md          (required)
+        ├── scripts/          (optional — Python/Bash scripts)
+        ├── references/       (optional — docs loaded at runtime)
+        └── assets/           (optional — templates, images, etc.)
 ```
 
-- `{group_id}` is the group's UUID (visible in `get_user_groups()` output).
+- `{group_id}` is the group's UUID (visible via the `list_user_groups` tool).
 - Skill names use lowercase, digits, and hyphens only.
 - Group skills are shared by all members of that group.
+- **All skill files (scripts, assets, references) MUST be placed inside the group skill directory.** Never put skill dependencies in your personal workspace — other group members cannot access them.
 
 ## Permission Model
 
@@ -24,11 +28,7 @@ description: Manage group-level skills for nanobot groups. Use when the user wan
 - The agent must verify admin membership before touching any group skill file.
 - Group skills have priority: **user skills > group skills > builtin skills**.
 
-## Step 1 — Find Groups Where the User Is Admin
-
-The user's database ID must be determined first. Use the approach that matches the situation.
-
-### Approach A — Parse workspace path (most reliable)
+## Step 1 — Find Your User ID
 
 The system prompt shows a `Workspace Folder` line. For authenticated users the path ends with the database user ID:
 
@@ -36,51 +36,23 @@ The system prompt shows a `Workspace Folder` line. For authenticated users the p
 Workspace Folder: /home/user/.nanobot/workspaces/{user_id}
 ```
 
-Extract the last path segment as the user ID. If it is `cli` (the unauthenticated workspace), the user needs to log in first — tell them so and stop.
+Extract the last path segment as your user ID. If it is `cli` (the unauthenticated workspace), you need to log in first — tell the user so and stop.
 
-### Approach B — Look up by username
+**Fallback**: The runtime context at the bottom of each turn may include `Sender ID: <id>`. Only use this if it looks like a 32-char hex UUID. If it starts with `anon-`, rely on the Workspace Folder path instead.
 
-If the user tells you their username (but not their UUID), use:
+## Step 2 — List Groups Where You Are Admin
 
-```bash
-python -c "
-from nanobot.auth import get_user_by_username
-u = get_user_by_username('USERNAME')
-print(u.id if u else 'NOT FOUND')
-"
-```
+Use the `list_user_groups` tool to get your group memberships. The tool returns JSON with each group's id, name, displayName, and your role (admin or member).
 
-### Approach C — Sender ID (only if the sender ID looks like a UUID, not `anon-...`)
+Filter for groups where `"role"` is `"admin"`. If none, tell the user you don't have admin access to any group and stop.
 
-The runtime context at the bottom of each turn may include `Sender ID: <id>`. Only use this if it looks like a 32-char hex UUID. If it starts with `anon-`, use Approach A or B instead.
+## Step 3 — Ask Which Group
 
-### List admin groups
-
-Once you have the correct user_id, run:
-
-```bash
-python -c "
-from nanobot.auth import get_user_groups, get_group_members
-user_id = 'USER_ID'
-for g in get_user_groups(user_id):
-    for m in get_group_members(g.id):
-        if m.user_id == user_id and m.role == 'admin':
-            print(f'{g.id}  {g.name}  display_name={g.display_name}')
-            break
-"
-```
-
-Replace `USER_ID` with the actual user ID.
-
-If the output is empty, tell the user they don't have admin access to any group and stop.
-
-## Step 2 — Ask Which Group
-
-Show the user the list and ask: "Which group should this skill be created in?"
+Show the user the admin groups and ask: "Which group should this skill be created in?"
 
 Let them pick one. Confirm the `group_id` before proceeding.
 
-## Step 3 — Determine the Skill Path
+## Step 4 — Determine the Skill Path
 
 The group workspace root is:
 
@@ -100,15 +72,40 @@ The skill file is:
 ~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/SKILL.md
 ```
 
-## Step 4 — Create / Edit / Delete
+## Step 5 — Create / Edit / Delete
+
+### CRITICAL: All skill files MUST live in the group directory
+
+When a skill needs bundled resources (scripts, references, assets, templates, etc.), place them **inside the group skill directory** — NOT in your personal workspace. Every file the skill depends on must be accessible to all group members via the shared group path.
+
+```
+~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/
+├── SKILL.md
+├── scripts/        # Executable scripts the skill needs
+├── references/     # Reference docs loaded at runtime
+└── assets/         # Templates, fonts, images, etc.
+```
+
+**Wrong**: writing scripts/templates to your personal workspace (`~/.nanobot/workspaces/{user_id}/skills/...`). Only you can access those files.
+**Correct**: writing everything under `~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/`.
 
 ### Create a new skill
+
+First create the skill directory and any resource subdirectories:
 
 ```bash
 mkdir -p ~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}
 ```
 
-Then use `write_file` to write the `SKILL.md`. Follow the skill format from the `skill-creator` skill:
+If the skill needs bundled resources, also create the relevant subdirectories:
+
+```bash
+mkdir -p ~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/scripts
+mkdir -p ~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/assets
+mkdir -p ~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/references
+```
+
+Then use `write_file` to write the `SKILL.md` and any bundled resource files, always using the group path prefix `~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/`. Follow the skill format from the `skill-creator` skill:
 
 ```markdown
 ---
@@ -161,7 +158,7 @@ Or via API:
 GET /api/groups/{group_id}/skills/{skill-name}/delete
 ```
 
-## Step 5 — Confirm
+## Step 6 — Confirm
 
 After creating/editing/deleting a group skill, tell the user:
 - What was done
@@ -174,3 +171,4 @@ After creating/editing/deleting a group skill, tell the user:
 - The `SKILL.md` must have valid YAML frontmatter with at least `name` and `description`.
 - Never create extraneous files (README.md, CHANGELOG.md, etc.) — only SKILL.md per skill directory.
 - Group skills are immediately available to all group members after creation.
+- **CRITICAL**: Place ALL skill files under the group path (`~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/`). Never put scripts, assets, or references in your personal workspace — group members cannot access files outside the group directory.

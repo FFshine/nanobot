@@ -672,10 +672,10 @@ class WebFetchTool(Tool):
                 "untrusted": True, "text": text,
             }, ensure_ascii=False)
         except httpx.ProxyError as e:
-            logger.exception("WebFetch proxy error for {}", url)
+            logger.warning("WebFetch proxy error for {}: {}", url, e)
             return json.dumps({"error": f"Proxy error: {e}", "url": url}, ensure_ascii=False)
         except Exception as e:
-            logger.exception("WebFetch error for {}", url)
+            logger.warning("WebFetch error for {}: {}", url, e)
             return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
 
     def _to_markdown(self, html_content: str) -> str:

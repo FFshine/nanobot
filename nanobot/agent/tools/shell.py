@@ -399,7 +399,13 @@ class ExecTool(Tool):
                 )
             else:
                 workspace = effective_working_dir or cwd
-                command = wrap_command(self.sandbox, command, workspace, cwd)
+                from nanobot.agent.tools.context import current_group_workspaces
+
+                group_ws_paths = [str(p) for p in current_group_workspaces()]
+                command = wrap_command(
+                    self.sandbox, command, workspace, cwd,
+                    group_workspaces=group_ws_paths,
+                )
                 cwd = str(Path(workspace).resolve())
 
         effective_timeout = self._resolve_timeout(timeout)
@@ -596,12 +602,22 @@ class ExecTool(Tool):
                     continue
 
                 media_path = get_media_dir().resolve()
-                if (p.is_absolute()
+                blocked = (
+                    p.is_absolute()
                     and cwd_path not in p.parents
                     and p != cwd_path
                     and media_path not in p.parents
                     and p != media_path
-                ):
+                )
+                if blocked:
+                    from nanobot.agent.tools.context import current_group_workspaces
+
+                    for gws in current_group_workspaces():
+                        gws_resolved = gws.resolve()
+                        if gws_resolved in p.parents or p == gws_resolved:
+                            blocked = False
+                            break
+                if blocked:
                     return (
                         "Error: Command blocked by safety guard (path outside working dir)"
                         + _WORKSPACE_BOUNDARY_NOTE
