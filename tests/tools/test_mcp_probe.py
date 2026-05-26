@@ -36,7 +36,7 @@ async def test_probe_returns_false_for_closed_port():
 @pytest.mark.asyncio
 async def test_probe_uses_default_port_for_http():
     """When no port in URL, should default to 80 (will fail -> False)."""
-    assert await _probe_http_url("http://unreachable-host.test/mcp") is False
+    assert await _probe_http_url("http://unreachable-host.invalid/mcp") is False
 
 
 # ---------------------------------------------------------------------------

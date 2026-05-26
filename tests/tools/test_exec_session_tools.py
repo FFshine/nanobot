@@ -235,7 +235,7 @@ def test_write_stdin_preserves_completed_session_output_until_polled(tmp_path):
             "time.sleep(1.0); print('done', flush=True)"
         )
 
-        initial = await exec_tool.execute(command=command, yield_time_ms=300)
+        initial = await exec_tool.execute(command=command, yield_time_ms=500)
         sid = _session_id(initial)
         await asyncio.sleep(1.2)
         final = await stdin_tool.execute(session_id=sid, chars="", yield_time_ms=0)
@@ -287,7 +287,7 @@ def test_write_stdin_wait_for_reports_timeout_without_killing_session(tmp_path):
             "import time; print('booting', flush=True); time.sleep(5)"
         )
 
-        initial = await exec_tool.execute(command=command, yield_time_ms=100)
+        initial = await exec_tool.execute(command=command, yield_time_ms=500)
         sid = _session_id(initial)
         waited = await stdin_tool.execute(
             session_id=sid,

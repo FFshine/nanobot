@@ -93,7 +93,7 @@ async def test_bootstrap_returns_token_for_localhost(
         resp = await _http_get("http://127.0.0.1:29901/webui/bootstrap")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["token"].startswith("nbwt_")
+        assert body["ws_token"].startswith("nbwt_")
         assert body["ws_path"] == "/"
         assert body["expires_in"] > 0
         assert isinstance(body.get("model_name"), str)
@@ -117,7 +117,7 @@ async def test_sessions_routes_require_bearer_token(
 
         # Mint a token via bootstrap, then call the API with it.
         boot = await _http_get("http://127.0.0.1:29902/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         listing = await _http_get("http://127.0.0.1:29902/api/sessions", headers=auth)
@@ -188,7 +188,7 @@ async def test_cli_apps_routes_require_token_and_return_payload(
         assert deny.status_code == 401
 
         boot = await _http_get("http://127.0.0.1:29912/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         catalog = await _http_get(
@@ -290,7 +290,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         assert deny.status_code == 401
 
         boot = await _http_get("http://127.0.0.1:29913/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         catalog = await _http_get(
@@ -380,7 +380,7 @@ async def test_sessions_list_only_returns_websocket_sessions_by_default(
     await asyncio.sleep(0.3)
     try:
         boot = await _http_get("http://127.0.0.1:29906/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         listing = await _http_get(
@@ -407,7 +407,7 @@ async def test_webui_sidebar_state_routes_are_config_dir_scoped(
     await asyncio.sleep(0.3)
     try:
         boot = await _http_get("http://127.0.0.1:29911/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         initial = await _http_get(
@@ -459,7 +459,7 @@ async def test_session_delete_removes_file(
     await asyncio.sleep(0.3)
     try:
         boot = await _http_get("http://127.0.0.1:29903/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         path = sm._get_session_path("websocket:doomed")
@@ -489,7 +489,7 @@ async def test_session_routes_accept_percent_encoded_websocket_keys(
     await asyncio.sleep(0.3)
     try:
         boot = await _http_get("http://127.0.0.1:29910/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         msgs = await _http_get(
@@ -530,7 +530,7 @@ async def test_session_routes_reject_non_websocket_keys(
     await asyncio.sleep(0.3)
     try:
         boot = await _http_get("http://127.0.0.1:29909/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         # The webui list already hides non-websocket sessions; handcrafted URLs
@@ -564,7 +564,7 @@ async def test_session_routes_reject_invalid_key(
     await asyncio.sleep(0.3)
     try:
         boot = await _http_get("http://127.0.0.1:29904/webui/bootstrap")
-        token = boot.json()["token"]
+        token = boot.json()["ws_token"]
         auth = {"Authorization": f"Bearer {token}"}
 
         # Invalid characters in the key -> regex match fails -> 404
@@ -682,6 +682,7 @@ class _FakeReq:
 
     def __init__(self, headers: dict[str, str] | None = None):
         self.headers = headers or {}
+        self.path = "/webui/bootstrap"
 
 
 _REMOTE = _FakeConn(("192.168.1.5", 12345))
@@ -731,7 +732,7 @@ def test_bootstrap_accepts_static_token_as_secret(bus: MagicMock) -> None:
     )
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["token"].startswith("nbwt_")
+    assert body["ws_token"].startswith("nbwt_")
 
 
 def test_localhost_without_auth_is_valid(bus: MagicMock) -> None:
@@ -795,7 +796,7 @@ def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
     )
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["token"].startswith("nbwt_")
+    assert body["ws_token"].startswith("nbwt_")
 
 
 def test_bootstrap_accepts_x_nanobot_auth_header(bus: MagicMock) -> None:

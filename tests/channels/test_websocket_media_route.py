@@ -366,7 +366,7 @@ async def test_session_messages_exposes_signed_media_urls(
         await asyncio.sleep(0.3)
         try:
             boot = await _http_get("http://127.0.0.1:29925/webui/bootstrap")
-            token = boot.json()["token"]
+            token = boot.json()["ws_token"]
             auth = {"Authorization": f"Bearer {token}"}
             resp = await _http_get(
                 "http://127.0.0.1:29925/api/sessions/websocket:media-hydrate/messages",
@@ -411,7 +411,7 @@ async def test_session_messages_skips_vanished_media(
         await asyncio.sleep(0.3)
         try:
             boot = await _http_get("http://127.0.0.1:29926/webui/bootstrap")
-            token = boot.json()["token"]
+            token = boot.json()["ws_token"]
             resp = await _http_get(
                 "http://127.0.0.1:29926/api/sessions/websocket:vanished/messages",
                 headers={"Authorization": f"Bearer {token}"},
