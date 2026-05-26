@@ -297,6 +297,16 @@ async def cmd_model(ctx: CommandContext) -> OutboundMessage:
     )
 
 
+def _get_user_memory_store_for_cmd(ctx: CommandContext):
+    """Return the per-user MemoryStore when in multi-user mode, else the global one."""
+    loop = ctx.loop
+    if hasattr(loop, "_user_id_from_session_key"):
+        user_id = loop._user_id_from_session_key(ctx.key)
+        if user_id and hasattr(loop, "_get_user_memory_store"):
+            return loop._get_user_memory_store(user_id)
+    return loop.consolidator.store
+
+
 async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     """Manually trigger a Dream consolidation run."""
     import time
@@ -307,7 +317,9 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     async def _run_dream():
         t0 = time.monotonic()
         try:
-            did_work = await loop.dream.run()
+            user_id = loop._user_id_from_session_key(ctx.key)
+            dream = loop._get_user_dream(user_id) if user_id else loop.dream
+            did_work = await dream.run()
             elapsed = time.monotonic() - t0
             if did_work:
                 content = f"Dream completed in {elapsed:.1f}s."
@@ -404,7 +416,7 @@ async def cmd_dream_log(ctx: CommandContext) -> OutboundMessage:
     Default: diff of the latest commit (HEAD~1 vs HEAD).
     With /dream-log <sha>: diff of that specific commit.
     """
-    store = ctx.loop.consolidator.store
+    store = _get_user_memory_store_for_cmd(ctx)
     git = store.git
 
     if not git.is_initialized():
@@ -455,7 +467,7 @@ async def cmd_dream_restore(ctx: CommandContext) -> OutboundMessage:
         /dream-restore          — list recent commits
         /dream-restore <sha>    — revert a specific commit
     """
-    store = ctx.loop.consolidator.store
+    store = _get_user_memory_store_for_cmd(ctx)
     git = store.git
     if not git.is_initialized():
         return OutboundMessage(

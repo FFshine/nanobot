@@ -611,10 +611,24 @@ class WebSocketChannel(BaseChannel):
 
     def _get_user_cron_service(self, user_id: str) -> "CronService":
         from nanobot.cron.service import CronService
+        from nanobot.cron.types import CronJob, CronPayload
+        from nanobot.config.loader import load_config
 
         if user_id not in self._user_cron_services:
             ws = self._get_user_workspace(user_id)
-            self._user_cron_services[user_id] = CronService(ws / "cron" / "jobs.json")
+            svc = CronService(ws / "cron" / "jobs.json")
+
+            # Seed the dream system job for WebUI visibility
+            config = load_config()
+            dream_cfg = config.agents.defaults.dream
+            svc.register_system_job(CronJob(
+                id="dream",
+                name="dream",
+                schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
+                payload=CronPayload(kind="system_event"),
+            ))
+
+            self._user_cron_services[user_id] = svc
         return self._user_cron_services[user_id]
 
     def _get_user_webui_dir(self, user_id: str) -> Path:

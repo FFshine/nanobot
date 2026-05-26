@@ -721,12 +721,36 @@ class AgentLoop:
         """Return the per-user CronService for *user_id*."""
         if user_id not in self._user_cron_services:
             from nanobot.cron.service import CronService
+            from nanobot.cron.types import CronJob, CronPayload
+            from nanobot.config.loader import load_config
 
             ws = get_workspace_path(user_id=user_id)
             sync_workspace_templates(ws, silent=True)
             svc = CronService(ws / "cron" / "jobs.json")
+
+            # Seed the dream system job so it shows in the user's cron list and
+            # can be customised per-user in the future.  Currently dream is
+            # dispatched globally via run_dream_for_all_users(), so per-user
+            # dream jobs are skipped below to avoid double execution.
+            config = load_config()
+            dream_cfg = config.agents.defaults.dream
+            svc.register_system_job(CronJob(
+                id="dream",
+                name="dream",
+                schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
+                payload=CronPayload(kind="system_event"),
+            ))
+
             if self._on_cron_job is not None:
-                svc.on_job = self._on_cron_job
+                base = self._on_cron_job
+
+                async def _on_user_cron_job(job):
+                    # Dream is dispatched globally; skip per-user dream jobs
+                    if job.name == "dream":
+                        return None
+                    return await base(job)
+
+                svc.on_job = _on_user_cron_job
             self._user_cron_services[user_id] = svc
             # Start the per-user cron loop in the background
             self._schedule_background(svc.start())

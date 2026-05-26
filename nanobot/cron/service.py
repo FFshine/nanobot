@@ -185,7 +185,7 @@ class CronService:
 
         def _del(params: dict):
             if job_id := params.get("job_id"):
-                jobs_map.pop(job_id)
+                jobs_map.pop(job_id, None)
 
         with self._lock:
             with open(self._action_path, "r", encoding="utf-8") as f:
