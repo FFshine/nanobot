@@ -9,6 +9,7 @@ import type {
   SettingsUpdate,
   SidebarStatePayload,
   SlashCommand,
+  UserGroup,
   WebSearchSettingsUpdate,
   WebuiThreadPersistedPayload,
 } from "./types";
@@ -519,6 +520,19 @@ export async function deleteUser(
   base: string = "",
 ): Promise<{ ok: boolean }> {
   return request(`${base}/api/auth/users/${encodeURIComponent(userId)}/delete`, token);
+}
+
+// -- My groups (current user) ---------------------------------------------------
+
+export interface MyGroupsPayload {
+  groups: UserGroup[];
+}
+
+export async function fetchMyGroups(
+  token: string,
+  base: string = "",
+): Promise<MyGroupsPayload> {
+  return request<MyGroupsPayload>(`${base}/api/me/groups`, token);
 }
 
 // -- Group management (admin only) --------------------------------------------

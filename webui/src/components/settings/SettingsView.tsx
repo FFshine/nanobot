@@ -39,11 +39,13 @@ import {
   RotateCcw,
   Search,
   Server,
+  Shield,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Trash2,
   Triangle,
+  User,
   Users,
   Waves,
   Zap,
@@ -115,7 +117,7 @@ import {
   providerBrand,
   providerDisplayLabel,
 } from "@/lib/provider-brand";
-import { isAdmin } from "@/lib/auth";
+import { getUser, isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 import type {
@@ -125,6 +127,7 @@ import type {
   McpPresetInfo,
   McpPresetsPayload,
   SettingsPayload,
+  UserGroup,
   WebSearchSettingsUpdate,
 } from "@/lib/types";
 
@@ -261,6 +264,7 @@ interface SettingsViewProps {
   onLogout?: () => void;
   onRestart?: () => void;
   isRestarting?: boolean;
+  userGroups?: UserGroup[];
 }
 
 function readLocalPreferences(): LocalPreferences {
@@ -300,6 +304,7 @@ export function SettingsView({
   onLogout,
   onRestart,
   isRestarting = false,
+  userGroups = [],
 }: SettingsViewProps) {
   const { t } = useTranslation();
   const { token } = useClient();
@@ -1209,6 +1214,7 @@ export function SettingsView({
         onSelectSection={setActiveSection}
         onBackToChat={onBackToChat}
         onLogout={onLogout}
+        userGroups={userGroups}
       />
 
       <NewModelConfigurationDialog
@@ -1286,13 +1292,18 @@ function SettingsSidebar({
   onSelectSection,
   onBackToChat,
   onLogout,
+  userGroups = [],
 }: {
   activeSection: SettingsSectionKey;
   onSelectSection: (section: SettingsSectionKey) => void;
   onBackToChat: () => void;
   onLogout?: () => void;
+  userGroups?: UserGroup[];
 }) {
   const { t } = useTranslation();
+  const currentUser = getUser();
+  const [groupsOpen, setGroupsOpen] = useState(false);
+
   return (
     <aside className="flex w-full shrink-0 flex-col border-b border-border/55 bg-card/62 px-4 pb-3 pt-4 shadow-[inset_0_-1px_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:bg-card/45 dark:shadow-none md:w-[17rem] md:border-b-0 md:border-r md:px-3 md:py-4 md:shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)]">
       <button
@@ -1307,14 +1318,79 @@ function SettingsSidebar({
         <h2 className="text-[21px] font-semibold tracking-[-0.02em] text-foreground">
           {t("settings.sidebar.title")}
         </h2>
-        {isAdmin() ? (
-          <span className="mt-1 inline-flex h-5 items-center rounded-full bg-green-100 px-2 text-[10px] font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
-            Admin
-          </span>
-        ) : (
-          <span className="mt-1 inline-flex h-5 items-center rounded-full bg-amber-100 px-2 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-            {t("settings.readOnly", "Read only")}
-          </span>
+        {currentUser && (
+          <div className="mt-2 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+              <User className="h-3 w-3 shrink-0" />
+              <span className="truncate font-medium text-foreground">
+                {currentUser.displayName || currentUser.username}
+              </span>
+              <span className="text-[11px] text-muted-foreground/70">
+                @{currentUser.username}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {isAdmin() ? (
+                <span className="inline-flex h-5 items-center rounded-full bg-green-100 px-2 text-[10px] font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  Admin
+                </span>
+              ) : (
+                <span className="inline-flex h-5 items-center rounded-full bg-amber-100 px-2 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  {t("settings.readOnly", "Read only")}
+                </span>
+              )}
+            </div>
+            {userGroups.length > 0 && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setGroupsOpen((v) => !v)}
+                  className="flex w-full items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                >
+                  {groupsOpen ? (
+                    <ChevronDown className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3 shrink-0" />
+                  )}
+                  {t("userMenu.groups", "Groups")}
+                  <span className="ml-auto text-[9px] font-normal normal-case">
+                    {userGroups.length}
+                  </span>
+                </button>
+                {groupsOpen && (
+                  <div className="mt-1 space-y-0.5">
+                    {userGroups.map((g) => (
+                      <div
+                        key={g.id}
+                        className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                      >
+                        <Shield className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{g.displayName || g.name}</span>
+                        {g.role === "admin" && (
+                          <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/50">
+                            admin
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {!currentUser && (
+          <>
+            {isAdmin() ? (
+              <span className="mt-1 inline-flex h-5 items-center rounded-full bg-green-100 px-2 text-[10px] font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                Admin
+              </span>
+            ) : (
+              <span className="mt-1 inline-flex h-5 items-center rounded-full bg-amber-100 px-2 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                {t("settings.readOnly", "Read only")}
+              </span>
+            )}
+          </>
         )}
       </div>
 

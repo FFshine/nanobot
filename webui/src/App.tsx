@@ -23,12 +23,12 @@ import {
   setAuth,
   setupAdmin,
 } from "@/lib/auth";
-import { onApiUnauthorized } from "@/lib/api";
+import { fetchMyGroups, onApiUnauthorized } from "@/lib/api";
 import { deriveWsUrl } from "@/lib/bootstrap";
 import { deriveTitle } from "@/lib/format";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
-import type { BootPayload, ChatSummary } from "@/lib/types";
+import type { BootPayload, ChatSummary, UserGroup } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -546,6 +546,7 @@ function Shell({
   const [runningChatIds, setRunningChatIds] = useState<Set<string>>(() => new Set());
   const [completedChatIds, setCompletedChatIds] = useState<Set<string>>(readCompletedRunChatIds);
   const runningChatIdsRef = useRef<Set<string>>(new Set());
+  const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
 
   useEffect(() => {
     try {
@@ -610,6 +611,16 @@ function Shell({
       return changed ? next : current;
     });
   }, [client, loading, sessions]);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    fetchMyGroups(token).then((payload) => {
+      setUserGroups(payload.groups);
+    }).catch(() => {
+      // ignore — groups are non-critical
+    });
+  }, []);
 
   const closeDesktopSidebar = useCallback(() => {
     setDesktopSidebarOpen(false);
@@ -912,6 +923,17 @@ function Shell({
       deriveTitle(activeSession.preview, t("chat.newChat"))
     : t("app.brand");
 
+  const userInfo = useMemo(() => {
+    const u = getUser();
+    if (!u) return undefined;
+    return {
+      username: u.username,
+      displayName: u.displayName,
+      role: u.role,
+      groups: userGroups,
+    };
+  }, [userGroups]);
+
   useEffect(() => {
     if (view === "settings") {
       document.title = t("app.documentTitle.chat", {
@@ -1026,6 +1048,9 @@ function Shell({
               theme={theme}
               onToggleTheme={toggle}
               hideSidebarToggleOnDesktop
+              user={userInfo}
+              onOpenSettings={onOpenSettings}
+              onLogout={onLogout}
             />
           </div>
           {view === "settings" && (
@@ -1038,6 +1063,7 @@ function Shell({
                 onLogout={onLogout}
                 onRestart={onRestart}
                 isRestarting={isRestarting}
+                userGroups={userGroups}
               />
             </div>
           )}

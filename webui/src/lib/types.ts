@@ -603,6 +603,13 @@ export interface GroupSkill {
   source: string;
 }
 
+export interface UserGroup {
+  id: string;
+  name: string;
+  displayName: string;
+  role: string;
+}
+
 /** Response from GET /webui/bootstrap */
 export interface BootPayload {
   token?: string;

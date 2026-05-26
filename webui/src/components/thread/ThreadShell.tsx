@@ -31,7 +31,7 @@ import {
   isMcpPresetsPayload,
 } from "@/lib/mcp-preset-events";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
-import type { ChatSummary, CliAppInfo, McpPresetInfo, SettingsPayload, SlashCommand, UIMessage } from "@/lib/types";
+import type { ChatSummary, CliAppInfo, McpPresetInfo, SettingsPayload, SlashCommand, UIMessage, UserGroup } from "@/lib/types";
 import { normalizeLegacyLongTaskMessages } from "@/lib/thread-display-compat";
 import { scrubSubagentUiMessages } from "@/lib/subagent-channel-display";
 import { useClient } from "@/providers/ClientProvider";
@@ -65,6 +65,14 @@ interface ThreadShellProps {
   theme?: "light" | "dark";
   onToggleTheme?: () => void;
   hideSidebarToggleOnDesktop?: boolean;
+  user?: {
+    username: string;
+    displayName: string;
+    role: "admin" | "user";
+    groups: UserGroup[];
+  };
+  onOpenSettings: () => void;
+  onLogout: () => void;
 }
 
 function toModelBadgeLabel(modelName: string | null): string | null {
@@ -143,6 +151,9 @@ export function ThreadShell({
   theme = "light",
   onToggleTheme = () => {},
   hideSidebarToggleOnDesktop = false,
+  user,
+  onOpenSettings,
+  onLogout,
 }: ThreadShellProps) {
   const { t } = useTranslation();
   const chatId = session?.chatId ?? null;
@@ -574,6 +585,9 @@ export function ThreadShell({
         onToggleTheme={onToggleTheme}
         hideSidebarToggleOnDesktop={hideSidebarToggleOnDesktop}
         minimal={!session && !loading}
+        user={user}
+        onOpenSettings={onOpenSettings}
+        onLogout={onLogout}
       />
       <ThreadViewport
         messages={displayMessages}
