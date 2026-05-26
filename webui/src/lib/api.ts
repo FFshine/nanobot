@@ -277,6 +277,9 @@ export async function updateSettings(
   if (update.toolHintMaxLength !== undefined) {
     query.set("tool_hint_max_length", String(update.toolHintMaxLength));
   }
+  if (update.disabledSkills !== undefined) {
+    query.set("disabled_skills", JSON.stringify(update.disabledSkills));
+  }
   return request<SettingsPayload>(`${base}/api/settings/update?${query}`, token);
 }
 
@@ -369,6 +372,9 @@ export interface SkillInfo {
   name: string;
   description: string;
   source: string;
+  emoji?: string;
+  always?: boolean;
+  disabled?: boolean;
 }
 
 export interface SkillsListPayload {
@@ -419,6 +425,21 @@ export async function updateSkillContent(
   query.set("content", content);
   return request<{ ok: boolean }>(
     `${base}/api/settings/skills/${encodeURIComponent(name)}/update?${query}`,
+    token,
+  );
+}
+
+export async function createSkill(
+  token: string,
+  name: string,
+  content: string,
+  base: string = "",
+): Promise<{ created: string }> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  query.set("content", content);
+  return request<{ created: string }>(
+    `${base}/api/settings/skills/create?${query}`,
     token,
   );
 }

@@ -881,6 +881,10 @@ class WebSocketChannel(BaseChannel):
         if m:
             return self._handle_settings_skill_update(request, m.group(1))
 
+        m = re.match(r"^/api/settings/skills/create$", got)
+        if m:
+            return self._handle_settings_skill_create(request)
+
         if got == "/api/commands":
             return self._handle_commands(request)
 
@@ -1296,6 +1300,24 @@ class WebSocketChannel(BaseChannel):
         except WebUISettingsError as e:
             return _http_error(e.status, e.message)
         return _http_json_response({"ok": True})
+
+    def _handle_settings_skill_create(self, request: WsRequest) -> Response:
+        user = self._require_auth(request)
+        if user is None:
+            return _http_error(401, "Unauthorized")
+        from nanobot.webui.settings_api import create_user_skill
+
+        query = _parse_query(request.path)
+        name = _query_first_alias(query, "name") or ""
+        content = _query_first(query, "content")
+        if not name or content is None:
+            return _http_error(400, "missing name or content")
+        ws = self._get_user_workspace(user["id"])
+        try:
+            result = create_user_skill(str(ws), name, content)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(result)
 
     # -- Group API handlers --------------------------------------------------
 

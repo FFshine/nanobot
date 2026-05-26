@@ -186,6 +186,7 @@ export interface SettingsPayload {
     bot_name: string;
     bot_icon: string;
     tool_hint_max_length: number;
+    disabled_skills: string[];
   };
   model_presets: Array<{
     name: string;
@@ -378,6 +379,7 @@ export interface SettingsUpdate {
   botName?: string;
   botIcon?: string;
   toolHintMaxLength?: number;
+  disabledSkills?: string[];
 }
 
 export interface ModelConfigurationCreate {

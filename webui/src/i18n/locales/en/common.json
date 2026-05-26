@@ -128,8 +128,35 @@
     },
     "skills": {
       "deleteConfirm": "Delete skill '{name}'?",
-      "editTitle": "Edit skill: {name}",
-      "viewTitle": "View skill: {name}"
+      "editTitle": "Edit: {name}",
+      "editDescription": "Modify the skill and save changes.",
+      "viewTitle": "View: {name}",
+      "create": "New Skill",
+      "createTitle": "Create Skill",
+      "createDescription": "Create a new user skill. Write the SKILL.md content below.",
+      "nameRequired": "Skill name is required",
+      "nameFormat": "Invalid skill name format",
+      "nameLabel": "Skill Name",
+      "contentLabel": "SKILL.md Content",
+      "contentHint": "YAML frontmatter with name/description, then markdown instructions.",
+      "descriptionLabel": "Description",
+      "bodyLabel": "Instructions",
+      "rawContentLabel": "Raw SKILL.md",
+      "tabForm": "Structured",
+      "tabRaw": "Raw",
+      "searchPlaceholder": "Search skills...",
+      "filterAll": "All",
+      "filterUser": "User",
+      "filterGroup": "Group",
+      "filterBuiltin": "Builtin",
+      "alwaysLabel": "always",
+      "disabledLabel": "off",
+      "enable": "Enable",
+      "disable": "Disable",
+      "enableHint": "Enable skill",
+      "disableHint": "Disable skill",
+      "noMatch": "No skills match your filters",
+      "empty": "No skills available"
     },
     "models": {
       "selectModel": "Select model",
@@ -341,11 +368,14 @@
     },
     "actions": {
       "save": "Save",
-      "saving": "Saving",
+      "saving": "Saving...",
       "edit": "Edit",
       "cancel": "Cancel",
       "close": "Close",
       "view": "View",
+      "create": "Create",
+      "creating": "Creating...",
+      "delete": "Delete",
       "openDocs": "Open docs"
     },
     "byok": {
@@ -414,6 +444,14 @@
       "configureProvider": "Configure provider",
       "missingCredential": "Configure this provider before enabling image generation."
     },
+    "cron": {
+      "deleteConfirm": "Delete cron job '{name}'?",
+      "searchPlaceholder": "Search jobs...",
+      "noMatch": "No jobs match your filters",
+      "empty": "No scheduled jobs",
+      "nextRun": "Next",
+      "count": "{{count}} jobs"
+    },
     "users": {
       "create": "Create user",
       "createTitle": "Create user",
@@ -427,7 +465,10 @@
       "roleAdmin": "Admin",
       "usernameAndPasswordRequired": "Username and password are required",
       "passwordMinLength": "Password must be at least 6 characters",
-      "deleteConfirm": "Delete this user?"
+      "deleteConfirm": "Delete this user?",
+      "searchPlaceholder": "Search users...",
+      "noMatch": "No users match your filters",
+      "empty": "No users"
     },
     "groups": {
       "create": "Create group",
@@ -453,6 +494,7 @@
       "groupSettings": "Group Settings",
       "settingsHint": "JSON object with optional keys: disabled_skills (string array), model, provider.",
       "removeMemberConfirm": "Remove this member?",
+      "removeMember": "Remove member",
       "deleteConfirm": "Delete this group? This cannot be undone.",
       "addSkill": "Add skill",
       "createSkillTitle": "Create skill",
@@ -462,7 +504,15 @@
       "skillName": "Name",
       "skillNamePlaceholder": "e.g. my-skill",
       "skillNameRequired": "Skill name is required",
-      "deleteSkillConfirm": "Delete skill '{name}'?"
+      "deleteSkillConfirm": "Delete skill '{name}'?",
+      "empty": "No groups",
+      "noMembers": "No members",
+      "noSkills": "No group skills"
+    },
+    "profile": {
+      "soulHint": "Core identity and personality",
+      "userHint": "User preferences and context",
+      "memoryHint": "Persistent knowledge base"
     }
   },
   "chat": {

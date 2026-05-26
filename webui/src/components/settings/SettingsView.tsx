@@ -97,6 +97,7 @@ import {
   createGroupSkill,
   updateGroupSkill,
   deleteGroupSkill,
+  createSkill,
   importMcpConfig,
   runCliAppAction,
   runMcpPresetAction,
@@ -366,7 +367,7 @@ export function SettingsView({
   const [webSearchKeyEditing, setWebSearchKeyEditing] = useState(false);
   const [profileData, setProfileData] = useState<{ soul: string; user: string; memory: string } | null>(null);
   const [skillsList, setSkillsList] = useState<Array<{ name: string; description: string; source: string }> | null>(null);
-  const [cronJobs, setCronJobs] = useState<Array<{ id: string; name: string; enabled: boolean; schedule: string; next_run_ms: number | null }> | null>(null);
+  const [cronJobs, setCronJobs] = useState<Array<{ id: string; name: string; enabled: boolean; schedule: string; schedule_kind?: string; next_run_ms: number | null; last_status?: string | null }> | null>(null);
   const [usersList, setUsersList] = useState<Array<{ id: string; username: string; displayName: string; role: string }> | null>(null);
   const [form, setForm] = useState<AgentSettingsDraft>({
     model: "",
@@ -3846,60 +3847,179 @@ function ProfileSettings({ data }: { data: { soul: string; user: string; memory:
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const [tab, setTab] = useState<"soul" | "user" | "memory">("soul");
   const tabs = [
-    { key: "soul" as const, label: "SOUL.md", content: data?.soul ?? "" },
-    { key: "user" as const, label: "USER.md", content: data?.user ?? "" },
-    { key: "memory" as const, label: "MEMORY.md", content: data?.memory ?? "" },
+    { key: "soul" as const, label: "SOUL.md", icon: "🧠", content: data?.soul ?? "", hint: tx("settings.profile.soulHint", "Core identity and personality") },
+    { key: "user" as const, label: "USER.md", icon: "👤", content: data?.user ?? "", hint: tx("settings.profile.userHint", "User preferences and context") },
+    { key: "memory" as const, label: "MEMORY.md", icon: "💾", content: data?.memory ?? "", hint: tx("settings.profile.memoryHint", "Persistent knowledge base") },
   ];
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];
   return (
-    <div className="space-y-7">
-      <section>
-        <SettingsSectionTitle>{tx("settings.sections.profileFiles", "Profile Files")}</SettingsSectionTitle>
-        <div className="flex gap-2 mb-3">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={cn(
-                "inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium transition-colors border shadow-sm",
-                tab === t.key
-                  ? "bg-foreground text-background border-foreground"
-                  : "bg-background text-muted-foreground border-input hover:bg-muted/60",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+    <div className="space-y-6">
+      <SettingsSectionTitle>{tx("settings.sections.profileFiles", "Profile Files")}</SettingsSectionTitle>
+
+      {/* Tab switcher */}
+      <div className="flex gap-1.5">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium transition-colors",
+              tab === t.key
+                ? "bg-foreground text-background"
+                : "bg-muted text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <span className="text-base leading-none">{t.icon}</span>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content card */}
+      <div className="rounded-[14px] border border-border/60 bg-card overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-border/30 bg-muted/30">
+          <span className="text-base">{current.icon}</span>
+          <div>
+            <span className="text-[14px] font-semibold">{current.label}</span>
+            <p className="text-[11px] text-muted-foreground">{tabs.find((t) => t.key === tab)?.hint}</p>
+          </div>
         </div>
-        <pre className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4 text-[13px] leading-relaxed whitespace-pre-wrap break-words">
-          {current.content || `(${tx("settings.values.empty", "empty")})`}
-        </pre>
-      </section>
+        <div className="p-5">
+          <pre className="max-h-96 overflow-auto text-[13px] leading-relaxed whitespace-pre-wrap break-words font-mono text-foreground/85">
+            {current.content || `(${tx("settings.values.empty", "empty")})`}
+          </pre>
+        </div>
+      </div>
     </div>
   );
 }
+
+// -- Simple frontmatter helpers for SKILL.md ----------------------------------
+
+function parseFrontmatter(content: string): { name: string; description: string; body: string } {
+  const match = content.match(/^---\s*\r?\n(.*?)\r?\n---\s*\r?\n?(.*)$/s);
+  if (!match) return { name: "", description: "", body: content };
+  const yamlStr = match[1];
+  const body = (match[2] || "").trim();
+  const nameMatch = yamlStr.match(/^name:\s*(.+)$/m);
+  const descMatch = yamlStr.match(/^description:\s*(.+)$/m);
+  return {
+    name: nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, "") : "",
+    description: descMatch ? descMatch[1].trim().replace(/^["']|["']$/g, "") : "",
+    body,
+  };
+}
+
+function buildFrontmatter(name: string, description: string, body: string): string {
+  const desc = description || name;
+  return `---\nname: ${name}\ndescription: "${desc}"\n---\n\n${body}`;
+}
+
+const SOURCE_LABELS: Record<string, { label: string; bg: string; text: string }> = {
+  builtin: { label: "Builtin", bg: "bg-slate-100 dark:bg-slate-800", text: "text-slate-600 dark:text-slate-400" },
+  user: { label: "User", bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-700 dark:text-blue-400" },
+  group: { label: "Group", bg: "bg-violet-100 dark:bg-violet-900/30", text: "text-violet-700 dark:text-violet-400" },
+};
+
+const DEFAULT_SKILL_TEMPLATE = `---
+name: my-skill
+description: "What this skill does"
+---
+
+# My Skill
+
+Instructions for the agent go here. Use markdown for formatting.
+
+## Usage
+
+Describe when and how to use this skill.
+`;
 
 function SkillsSettings({
   skills,
   token,
   onChanged,
 }: {
-  skills: Array<{ name: string; description: string; source: string }> | null;
+  skills: Array<{ name: string; description: string; source: string; emoji?: string; always?: boolean; disabled?: boolean }> | null;
   token: string;
   onChanged: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const list = skills ?? [];
-  const builtin = list.filter((s) => s.source === "builtin");
-  const group = list.filter((s) => s.source === "group");
-  const user = list.filter((s) => s.source !== "builtin" && s.source !== "group");
+
+  // Filters
+  const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "user" | "group" | "builtin">("all");
+
+  // Action state
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ name: string; content: string; readonly: boolean } | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const [editSaving, setEditSaving] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  // Create dialog
+  const [showCreate, setShowCreate] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createContent, setCreateContent] = useState(DEFAULT_SKILL_TEMPLATE);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  // Edit dialog
+  const [editing, setEditing] = useState<{ name: string; content: string } | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
+  const [editTab, setEditTab] = useState<"form" | "raw">("form");
+
+  // View dialog
+  const [viewing, setViewing] = useState<{ name: string; content: string } | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+
+  // ── Derived data ──────────────────────────────────────────────────────
+
+  const counts = useMemo(() => ({
+    all: list.length,
+    user: list.filter((s) => s.source === "user").length,
+    group: list.filter((s) => s.source === "group").length,
+    builtin: list.filter((s) => s.source === "builtin").length,
+  }), [list]);
+
+  const filtered = useMemo(() => {
+    let result = list;
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      result = result.filter(
+        (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
+      );
+    }
+    if (sourceFilter !== "all") {
+      result = result.filter((s) => s.source === sourceFilter);
+    }
+    return result;
+  }, [list, search, sourceFilter]);
+
+  const disabledNames = useMemo(
+    () => new Set(list.filter((s) => s.disabled).map((s) => s.name)),
+    [list],
+  );
+
+  // ── Actions ───────────────────────────────────────────────────────────
+
+  const handleToggle = async (name: string) => {
+    const currentlyDisabled = disabledNames.has(name);
+    const newDisabled = currentlyDisabled
+      ? list.filter((s) => s.disabled).map((s) => s.name).filter((n) => n !== name)
+      : [...list.filter((s) => s.disabled).map((s) => s.name), name];
+    setToggling(name);
+    try {
+      await updateSettings(token, { disabledSkills: newDisabled });
+      onChanged();
+    } catch { /* ignore */ } finally {
+      setToggling(null);
+    }
+  };
 
   const handleDelete = async (name: string) => {
     if (!window.confirm(t("settings.skills.deleteConfirm", { defaultValue: "Delete skill '{name}'?", name }))) return;
@@ -3907,202 +4027,448 @@ function SkillsSettings({
     try {
       await deleteSkill(token, name);
       onChanged();
-    } catch {
-      // ignore
-    } finally {
+    } catch { /* ignore */ } finally {
       setDeleting(null);
     }
   };
 
-  const handleStartEdit = async (name: string) => {
+  const openEdit = async (name: string) => {
     setEditLoading(true);
     try {
       const data = await fetchSkillContent(token, name);
-      setEditing({ name, content: data.content, readonly: false });
-      setEditContent(data.content);
-    } catch {
-      // ignore
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  const handleView = async (name: string) => {
-    setEditLoading(true);
-    try {
-      const data = await fetchSkillContent(token, name);
-      setEditing({ name, content: data.content, readonly: true });
-      setEditContent(data.content);
-    } catch {
-      // ignore
-    } finally {
+      const parsed = parseFrontmatter(data.content);
+      setEditing({ name, content: data.content });
+      setEditName(parsed.name || name);
+      setEditDescription(parsed.description);
+      setEditBody(parsed.body || data.content);
+      setEditTab("form");
+    } catch { /* ignore */ } finally {
       setEditLoading(false);
     }
   };
 
   const handleSaveEdit = async () => {
     if (!editing) return;
-    setEditSaving(true);
+    const newContent = editTab === "raw"
+      ? editBody
+      : buildFrontmatter(editName || editing.name, editDescription, editBody);
+    setEditBusy(true);
     try {
-      await updateSkillContent(token, editing.name, editContent);
+      if (editName && editName !== editing.name) {
+        await createSkill(token, editName, newContent);
+        await deleteSkill(token, editing.name);
+      } else {
+        await updateSkillContent(token, editing.name, newContent);
+      }
       setEditing(null);
       onChanged();
-    } catch {
-      // ignore
-    } finally {
-      setEditSaving(false);
+    } catch { /* ignore */ } finally {
+      setEditBusy(false);
     }
   };
 
-  return (
-    <div className="space-y-7">
-      {user.length > 0 && (
-        <section>
-          <SettingsSectionTitle>{tx("settings.sections.userSkills", "User Skills")}</SettingsSectionTitle>
-          <SettingsGroup>
-            {user.map((s) => (
-              <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium">{s.name}</div>
-                  <div className="text-[12px] text-muted-foreground truncate">{s.description || "—"}</div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0 ml-3">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full"
-                    disabled={editLoading}
-                    onClick={() => handleStartEdit(s.name)}
-                    aria-label={tx("settings.actions.edit", "Edit")}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8"
-                    disabled={deleting === s.name}
-                    onClick={() => handleDelete(s.name)}
-                    aria-label={tx("settings.actions.delete", "Delete")}
-                  >
-                    {deleting === s.name ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </SettingsGroup>
-        </section>
-      )}
-      {group.length > 0 && (
-        <section>
-          <SettingsSectionTitle>{tx("settings.sections.groupSkills", "Group Skills")}</SettingsSectionTitle>
-          <SettingsGroup>
-            {group.map((s) => (
-              <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium">{s.name}</div>
-                  <div className="text-[12px] text-muted-foreground truncate">{s.description || "—"}</div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0 ml-3">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full"
-                    disabled={editLoading}
-                    onClick={() => handleView(s.name)}
-                    aria-label={tx("settings.actions.view", "View")}
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </SettingsGroup>
-        </section>
-      )}
-      <section>
-        <SettingsSectionTitle>{tx("settings.sections.builtinSkills", "Builtin Skills")}</SettingsSectionTitle>
-        <SettingsGroup>
-          {builtin.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
-          ) : (
-            builtin.map((s) => (
-              <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium">{s.name}</div>
-                  <div className="text-[12px] text-muted-foreground truncate">{s.description || "—"}</div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0 ml-3">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full"
-                    disabled={editLoading}
-                    onClick={() => handleView(s.name)}
-                    aria-label={tx("settings.actions.view", "View")}
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </SettingsGroup>
-      </section>
+  const openView = async (name: string) => {
+    setViewLoading(true);
+    try {
+      const data = await fetchSkillContent(token, name);
+      setViewing({ name, content: data.content });
+    } catch { /* ignore */ } finally {
+      setViewLoading(false);
+    }
+  };
 
-      {editing ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-[600px] rounded-[22px] border border-border/55 bg-card/95 p-0 shadow-[0_28px_90px_rgba(15,23,42,0.20)] backdrop-blur-xl">
-            <div className="border-b border-border/45 px-5 py-4">
-              <h3 className="text-[18px] font-semibold">
-                {editing.readonly
-                  ? t("settings.skills.viewTitle", { defaultValue: "View skill: {name}", name: editing.name })
-                  : t("settings.skills.editTitle", { defaultValue: "Edit skill: {name}", name: editing.name })}
-              </h3>
-            </div>
-            <div className="px-5 py-4">
-              <Textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="min-h-[300px] text-[13px] font-mono"
-                readOnly={editing.readonly}
+  const handleCreate = async () => {
+    setCreateError("");
+    const name = createName.trim();
+    if (!name) {
+      setCreateError(tx("settings.skills.nameRequired", "Skill name is required"));
+      return;
+    }
+    if (!/^[a-z0-9][a-z0-9_.-]{0,63}$/i.test(name)) {
+      setCreateError(tx("settings.skills.nameFormat", "Invalid skill name format"));
+      return;
+    }
+    setCreateBusy(true);
+    try {
+      await createSkill(token, name, createContent);
+      setShowCreate(false);
+      setCreateName("");
+      setCreateContent(DEFAULT_SKILL_TEMPLATE);
+      onChanged();
+    } catch (e: any) {
+      setCreateError(e?.message || String(e));
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────
+
+  const renderSkillActions = (s: typeof list[number]) => {
+    const isUser = s.source === "user";
+    const togglingThis = toggling === s.name;
+
+    return (
+      <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+        {/* Enable/disable toggle */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 rounded-full"
+          disabled={togglingThis}
+          onClick={() => handleToggle(s.name)}
+          aria-label={s.disabled ? tx("settings.skills.enable", "Enable") : tx("settings.skills.disable", "Disable")}
+          title={s.disabled ? tx("settings.skills.enableHint", "Enable skill") : tx("settings.skills.disableHint", "Disable skill")}
+        >
+          {togglingThis ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check
+              className={cn("h-3.5 w-3.5", s.disabled ? "text-muted-foreground/30" : "text-emerald-500")}
+            />
+          )}
+        </Button>
+        {/* View */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 rounded-full"
+          disabled={viewLoading}
+          onClick={() => openView(s.name)}
+          aria-label={tx("settings.actions.view", "View")}
+          title={tx("settings.actions.view", "View")}
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </Button>
+        {/* Edit (user only) */}
+        {isUser && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-full"
+            disabled={editLoading}
+            onClick={() => openEdit(s.name)}
+            aria-label={tx("settings.actions.edit", "Edit")}
+            title={tx("settings.actions.edit", "Edit")}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        {/* Delete (user only) */}
+        {isUser && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8"
+            disabled={deleting === s.name}
+            onClick={() => handleDelete(s.name)}
+            aria-label={tx("settings.actions.delete", "Delete")}
+            title={tx("settings.actions.delete", "Delete")}
+          >
+            {deleting === s.name ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <SettingsSectionTitle>{tx("settings.sections.skills", "Skills")}</SettingsSectionTitle>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setShowCreate(true)}
+          className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {tx("settings.skills.create", "New Skill")}
+        </Button>
+      </div>
+
+      {/* Search + filter row */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={tx("settings.skills.searchPlaceholder", "Search skills...")}
+            className="pl-9 h-9 rounded-[10px] text-[13px]"
+          />
+        </div>
+      </div>
+
+      {/* Source filter pills */}
+      <div className="flex items-center gap-1.5">
+        {(["all", "user", "group", "builtin"] as const).map((f) => {
+          const active = sourceFilter === f;
+          const label = f === "all"
+            ? tx("settings.skills.filterAll", "All")
+            : f === "user"
+              ? tx("settings.skills.filterUser", "User")
+              : f === "group"
+                ? tx("settings.skills.filterGroup", "Group")
+                : tx("settings.skills.filterBuiltin", "Builtin");
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSourceFilter(f)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors",
+                active
+                  ? "bg-foreground text-background"
+                  : "bg-muted text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+              <span className={cn("text-[11px] opacity-60", active && "opacity-70")}>
+                {counts[f]}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Skill cards grid */}
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Sparkles className="h-8 w-8 text-muted-foreground/40 mb-3" />
+          <p className="text-sm text-muted-foreground">
+            {search || sourceFilter !== "all"
+              ? tx("settings.skills.noMatch", "No skills match your filters")
+              : tx("settings.skills.empty", "No skills available")}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map((s) => {
+            const srcInfo = SOURCE_LABELS[s.source] || SOURCE_LABELS.builtin;
+            return (
+              <div
+                key={s.name}
+                className={cn(
+                  "group relative flex flex-col rounded-[14px] border border-border/60 bg-card p-4 transition-shadow hover:shadow-md",
+                  s.disabled && "opacity-50 grayscale",
+                )}
+              >
+                {/* Top row: emoji + name */}
+                <div className="flex items-start gap-3 mb-2">
+                  <span className="flex-shrink-0 text-2xl leading-none mt-0.5 select-none">
+                    {s.emoji || "📄"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[14px] font-semibold truncate">{s.name}</span>
+                      {s.always && (
+                        <span className="inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 select-none">
+                          {tx("settings.skills.alwaysLabel", "always")}
+                        </span>
+                      )}
+                      {s.disabled && (
+                        <span className="inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 select-none">
+                          {tx("settings.skills.disabledLabel", "off")}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-muted-foreground line-clamp-2 mt-0.5 leading-[1.4]">
+                      {s.description || "—"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Bottom row: source badge + actions */}
+                <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/30">
+                  <span className={cn(
+                    "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold select-none",
+                    srcInfo.bg, srcInfo.text,
+                  )}>
+                    {srcInfo.label}
+                  </span>
+                  <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    {renderSkillActions(s)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Create Dialog ──────────────────────────────────────────────── */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>{tx("settings.skills.createTitle", "Create Skill")}</DialogTitle>
+            <DialogDescription>
+              {tx("settings.skills.createDescription", "Create a new user skill. Write the SKILL.md content below.")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.skills.nameLabel", "Skill Name")}</label>
+              <Input
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="my-skill"
+                className="h-9 rounded-[10px] font-mono text-[13px]"
               />
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-border/45 px-5 py-4">
-              <Button
-                type="button"
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => setEditing(null)}
-              >
-                {tx("settings.actions.close", "Close")}
-              </Button>
-              {!editing.readonly ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={editSaving}
-                  onClick={handleSaveEdit}
-                >
-                  {editSaving ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : null}
-                  {editSaving ? tx("settings.actions.saving", "Saving...") : tx("settings.actions.save", "Save")}
-                </Button>
-              ) : null}
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.skills.contentLabel", "SKILL.md Content")}</label>
+              <Textarea
+                value={createContent}
+                onChange={(e) => setCreateContent(e.target.value)}
+                className="min-h-[280px] text-[13px] font-mono"
+                placeholder={DEFAULT_SKILL_TEMPLATE}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {tx("settings.skills.contentHint", "YAML frontmatter with name/description, then markdown instructions.")}
+              </p>
             </div>
+            {createError && <p className="text-[12px] text-destructive">{createError}</p>}
           </div>
-        </div>
-      ) : null}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setShowCreate(false)} className="rounded-full">
+              {t("settings.actions.cancel")}
+            </Button>
+            <Button type="button" onClick={handleCreate} disabled={createBusy} className="rounded-full">
+              {createBusy
+                ? t("settings.actions.creating", { defaultValue: "Creating..." })
+                : t("settings.actions.create")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Dialog ────────────────────────────────────────────────── */}
+      <Dialog open={editing !== null} onOpenChange={() => setEditing(null)}>
+        <DialogContent className="sm:max-w-[650px]">
+          <DialogHeader>
+            <DialogTitle>
+              {t("settings.skills.editTitle", { defaultValue: "Edit: {name}", name: editing?.name })}
+            </DialogTitle>
+            <DialogDescription>
+              {tx("settings.skills.editDescription", "Modify the skill and save changes.")}
+            </DialogDescription>
+          </DialogHeader>
+          {editLoading ? (
+            <div className="flex h-48 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              {/* Tab switcher */}
+              <div className="flex items-center gap-1 rounded-[10px] bg-muted p-0.5 w-fit">
+                {(["form", "raw"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setEditTab(tab)}
+                    className={cn(
+                      "rounded-[8px] px-3 py-1 text-[12px] font-medium transition-colors",
+                      editTab === tab
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {tab === "form"
+                      ? tx("settings.skills.tabForm", "Structured")
+                      : tx("settings.skills.tabRaw", "Raw")}
+                  </button>
+                ))}
+              </div>
+
+              {editTab === "form" ? (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-[13px] font-medium">{tx("settings.skills.nameLabel", "Name")}</label>
+                    <Input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="h-9 rounded-[10px] font-mono text-[13px]"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[13px] font-medium">{tx("settings.skills.descriptionLabel", "Description")}</label>
+                    <Input
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      className="h-9 rounded-[10px] text-[13px]"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[13px] font-medium">{tx("settings.skills.bodyLabel", "Instructions")}</label>
+                    <Textarea
+                      value={editBody}
+                      onChange={(e) => setEditBody(e.target.value)}
+                      className="min-h-[200px] text-[13px] font-mono"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="text-[13px] font-medium">{tx("settings.skills.rawContentLabel", "Raw SKILL.md")}</label>
+                  <Textarea
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                    className="min-h-[300px] text-[13px] font-mono"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setEditing(null)} className="rounded-full">
+              {t("settings.actions.cancel")}
+            </Button>
+            <Button type="button" onClick={handleSaveEdit} disabled={editBusy || editLoading} className="rounded-full">
+              {editBusy
+                ? tx("settings.actions.saving", "Saving...")
+                : tx("settings.actions.save", "Save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── View Dialog ────────────────────────────────────────────────── */}
+      <Dialog open={viewing !== null} onOpenChange={() => setViewing(null)}>
+        <DialogContent className="sm:max-w-[650px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {t("settings.skills.viewTitle", { defaultValue: "View: {name}", name: viewing?.name })}
+            </DialogTitle>
+          </DialogHeader>
+          {viewLoading ? (
+            <div className="flex h-48 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : viewing ? (
+            <div className="py-2">
+              <pre className="whitespace-pre-wrap text-[13px] font-mono bg-muted/50 rounded-[10px] p-4 overflow-x-auto max-h-[55vh]">
+                {viewing.content}
+              </pre>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setViewing(null)} className="rounded-full">
+              {t("settings.actions.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -4112,7 +4478,7 @@ function CronSettings({
   token,
   onChanged,
 }: {
-  jobs: Array<{ id: string; name: string; enabled: boolean; schedule: string; next_run_ms: number | null }> | null;
+  jobs: Array<{ id: string; name: string; enabled: boolean; schedule: string; schedule_kind?: string; next_run_ms: number | null; last_status?: string | null }> | null;
   token: string;
   onChanged: () => void;
 }) {
@@ -4120,10 +4486,25 @@ function CronSettings({
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const list = jobs ?? [];
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
+
   const formatTime = (ms: number | null) => {
     if (ms == null) return "—";
     return new Date(ms).toLocaleString();
   };
+
+  const filtered = useMemo(() => {
+    let result = list;
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      result = result.filter((j) => j.name.toLowerCase().includes(q) || j.schedule.toLowerCase().includes(q));
+    }
+    if (statusFilter === "enabled") result = result.filter((j) => j.enabled);
+    if (statusFilter === "disabled") result = result.filter((j) => !j.enabled);
+    return result;
+  }, [list, search, statusFilter]);
+
   const handleDelete = async (jobId: string, name: string) => {
     if (!window.confirm(t("settings.cron.deleteConfirm", { defaultValue: "Delete cron job '{name}'?", name }))) return;
     setDeleting(jobId);
@@ -4136,49 +4517,141 @@ function CronSettings({
       setDeleting(null);
     }
   };
+
   return (
-    <div className="space-y-7">
-      <section>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <SettingsSectionTitle>{tx("settings.sections.cronJobs", "Scheduled Jobs")}</SettingsSectionTitle>
-        <SettingsGroup>
-          {list.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
-          ) : (
-            list.map((j) => (
-              <div key={j.id} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                <div>
-                  <div className="text-[13px] font-medium">{j.name}</div>
-                  <div className="text-[12px] text-muted-foreground">{j.schedule}</div>
-                </div>
-                <div className="flex items-center gap-3 text-right">
-                  <div>
-                    <div className="text-[12px] font-medium">{j.enabled ? tx("settings.values.enabled", "Active") : tx("settings.values.disabled", "Paused")}</div>
-                    <div className="text-[12px] text-muted-foreground">{j.next_run_ms ? formatTime(j.next_run_ms) : "—"}</div>
+        <span className="text-[12px] text-muted-foreground">
+          {tx("settings.cron.count", "{{count}} jobs").replace("{{count}}", String(list.length))}
+        </span>
+      </div>
+
+      {/* Search + filter */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={tx("settings.cron.searchPlaceholder", "Search jobs...")}
+            className="pl-9 h-9 rounded-[10px] text-[13px]"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        {(["all", "enabled", "disabled"] as const).map((f) => {
+          const active = statusFilter === f;
+          const label = f === "all"
+            ? tx("settings.skills.filterAll", "All")
+            : f === "enabled"
+              ? tx("settings.values.enabled", "Active")
+              : tx("settings.values.disabled", "Paused");
+          const count = f === "all" ? list.length : f === "enabled" ? list.filter((j) => j.enabled).length : list.filter((j) => !j.enabled).length;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setStatusFilter(f)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors",
+                active ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+              <span className={cn("text-[11px] opacity-60", active && "opacity-70")}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Job cards */}
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <RotateCcw className="h-8 w-8 text-muted-foreground/40 mb-3" />
+          <p className="text-sm text-muted-foreground">
+            {search || statusFilter !== "all"
+              ? tx("settings.cron.noMatch", "No jobs match your filters")
+              : tx("settings.cron.empty", "No scheduled jobs")}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map((j) => (
+            <div
+              key={j.id}
+              className={cn(
+                "group relative flex flex-col rounded-[14px] border border-border/60 bg-card p-4 transition-shadow hover:shadow-md",
+                !j.enabled && "opacity-55",
+              )}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <span className="flex-shrink-0 text-xl leading-none mt-0.5 select-none">
+                  ⏱
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[14px] font-semibold truncate">{j.name}</span>
+                    <span className={cn(
+                      "inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold select-none",
+                      j.enabled
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                    )}>
+                      {j.enabled ? tx("settings.values.enabled", "Active") : tx("settings.values.disabled", "Paused")}
+                    </span>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8"
-                    disabled={deleting === j.id}
-                    onClick={() => handleDelete(j.id, j.name)}
-                    aria-label={tx("settings.actions.delete", "Delete")}
-                  >
-                    {deleting === j.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
+                  <p className="text-[13px] font-mono text-muted-foreground mt-1">{j.schedule}</p>
+                  {j.schedule_kind && (
+                    <p className="text-[11px] text-muted-foreground/70 mt-0.5 capitalize">{j.schedule_kind}</p>
+                  )}
                 </div>
               </div>
-            ))
-          )}
-        </SettingsGroup>
-      </section>
+
+              <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/30">
+                <div className="text-[11px] text-muted-foreground">
+                  <span className="opacity-60">{tx("settings.cron.nextRun", "Next")}:</span>{" "}
+                  <span className="font-medium">{formatTime(j.next_run_ms)}</span>
+                  {j.last_status && (
+                    <span className={cn(
+                      "ml-2 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold",
+                      j.last_status === "ok"
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                    )}>
+                      {j.last_status}
+                    </span>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8 opacity-0 group-hover:opacity-100 transition-opacity"
+                  disabled={deleting === j.id}
+                  onClick={() => handleDelete(j.id, j.name)}
+                  aria-label={tx("settings.actions.delete", "Delete")}
+                >
+                  {deleting === j.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
+const USER_ROLE_CONFIG: Record<string, { icon: string; bg: string; text: string }> = {
+  admin: { icon: "🛡️", bg: "bg-emerald-100 dark:bg-emerald-900/30", text: "text-emerald-700 dark:text-emerald-400" },
+  user: { icon: "👤", bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-700 dark:text-blue-400" },
+};
 
 function UsersSettings({
   users,
@@ -4197,6 +4670,29 @@ function UsersSettings({
   const [newRole, setNewRole] = useState("user");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "user">("all");
+
+  const list = users ?? [];
+
+  const filtered = useMemo(() => {
+    let result = list;
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      result = result.filter(
+        (u) => u.username.toLowerCase().includes(q) || (u.displayName || "").toLowerCase().includes(q),
+      );
+    }
+    if (roleFilter !== "all") result = result.filter((u) => u.role === roleFilter);
+    return result;
+  }, [list, search, roleFilter]);
+
+  const counts = useMemo(() => ({
+    all: list.length,
+    admin: list.filter((u) => u.role === "admin").length,
+    user: list.filter((u) => u.role === "user").length,
+  }), [list]);
 
   const handleCreate = async () => {
     setError("");
@@ -4225,69 +4721,134 @@ function UsersSettings({
 
   const handleDelete = async (userId: string) => {
     if (!window.confirm(tx("settings.users.deleteConfirm", "Delete this user?"))) return;
+    setDeleting(userId);
     try {
       await deleteUser(token, userId);
       onChanged();
     } catch (e: any) {
       // ignore
+    } finally {
+      setDeleting(null);
     }
   };
 
-  const list = users ?? [];
+  const admin = isAdmin();
+
   return (
-    <div className="space-y-7">
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <SettingsSectionTitle>{tx("settings.sections.users", "Users")}</SettingsSectionTitle>
-          {isAdmin() ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowCreate(true)}
-              className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {tx("settings.users.create", "Create user")}
-            </Button>
-          ) : null}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <SettingsSectionTitle>{tx("settings.sections.users", "Users")}</SettingsSectionTitle>
+        {admin && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCreate(true)}
+            className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {tx("settings.users.create", "Create user")}
+          </Button>
+        )}
+      </div>
+
+      {/* Search + filter */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={tx("settings.users.searchPlaceholder", "Search users...")}
+            className="pl-9 h-9 rounded-[10px] text-[13px]"
+          />
         </div>
-        <SettingsGroup>
-          {list.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
-          ) : (
-            list.map((u) => (
-              <div key={u.id} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                <div>
-                  <div className="text-[13px] font-medium">{u.displayName || u.username}</div>
-                  <div className="text-[12px] text-muted-foreground">{u.username}</div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={cn(
-                    "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold",
-                    u.role === "admin"
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-                  )}>
-                    {u.role}
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        {(["all", "admin", "user"] as const).map((f) => {
+          const active = roleFilter === f;
+          const label = f === "all"
+            ? tx("settings.skills.filterAll", "All")
+            : f === "admin" ? "Admin" : "User";
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setRoleFilter(f)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors",
+                active ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+              <span className={cn("text-[11px] opacity-60", active && "opacity-70")}>{counts[f]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* User cards */}
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Users className="h-8 w-8 text-muted-foreground/40 mb-3" />
+          <p className="text-sm text-muted-foreground">
+            {search || roleFilter !== "all"
+              ? tx("settings.users.noMatch", "No users match your filters")
+              : tx("settings.users.empty", "No users")}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map((u) => {
+            const roleCfg = USER_ROLE_CONFIG[u.role] || USER_ROLE_CONFIG.user;
+            return (
+              <div
+                key={u.id}
+                className="group relative flex flex-col rounded-[14px] border border-border/60 bg-card p-4 transition-shadow hover:shadow-md"
+              >
+                <div className="flex items-start gap-3 mb-3">
+                  <span className="flex-shrink-0 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-lg select-none">
+                    {roleCfg.icon}
                   </span>
-                  {isAdmin() ? (
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[14px] font-semibold truncate">{u.displayName || u.username}</span>
+                    </div>
+                    <p className="text-[12px] text-muted-foreground truncate">{u.username}</p>
+                    <span className={cn(
+                      "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold select-none mt-1",
+                      roleCfg.bg, roleCfg.text,
+                    )}>
+                      {u.role}
+                    </span>
+                  </div>
+                </div>
+
+                {admin && (
+                  <div className="flex items-center justify-end mt-auto pt-2 border-t border-border/30">
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                      className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      disabled={deleting === u.id}
                       onClick={() => handleDelete(u.id)}
+                      aria-label={tx("settings.actions.delete", "Delete")}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      {deleting === u.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
                     </Button>
-                  ) : null}
-                </div>
+                  </div>
+                )}
               </div>
-            ))
-          )}
-        </SettingsGroup>
-      </section>
+            );
+          })}
+        </div>
+      )}
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="sm:max-w-[400px]">
@@ -4653,39 +5214,49 @@ function GroupsSettings({ token }: { token: string }) {
                   {tx("settings.groups.addMember", "Add member")}
                 </Button>
               </div>
-              <SettingsGroup>
-                {!groupMembers || groupMembers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
-                ) : (
-                  groupMembers.map((m) => (
-                    <div key={m.userId} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                      <div>
-                        <div className="text-[13px] font-medium">{m.displayName || m.username || m.userId}</div>
-                        <div className="text-[12px] text-muted-foreground">{m.userId}</div>
+              {!groupMembers || groupMembers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center rounded-[14px] border border-border/60 bg-card">
+                  <Users className="h-6 w-6 text-muted-foreground/40 mb-2" />
+                  <p className="text-sm text-muted-foreground">{tx("settings.groups.noMembers", "No members")}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {groupMembers.map((m) => (
+                    <div
+                      key={m.userId}
+                      className="group relative flex items-center gap-3 rounded-[14px] border border-border/60 bg-card p-3 transition-shadow hover:shadow-md"
+                    >
+                      <span className="flex-shrink-0 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-base select-none">
+                        {m.role === "admin" ? "🛡️" : "👤"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-semibold truncate">{m.displayName || m.username || m.userId}</div>
+                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <span className="truncate">{m.userId}</span>
+                          <span className={cn(
+                            "inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold",
+                            m.role === "admin"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+                          )}>
+                            {m.role}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className={cn(
-                          "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold",
-                          m.role === "admin"
-                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                            : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-                        )}>
-                          {m.role}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
-                          onClick={() => handleRemoveMember(m.userId)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        onClick={() => handleRemoveMember(m.userId)}
+                        aria-label={tx("settings.groups.removeMember", "Remove member")}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
-                  ))
-                )}
-              </SettingsGroup>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Skills section */}
@@ -4703,39 +5274,47 @@ function GroupsSettings({ token }: { token: string }) {
                   {tx("settings.groups.addSkill", "Add skill")}
                 </Button>
               </div>
-              <SettingsGroup>
-                {skillsLoading ? (
-                  <div className="flex h-16 items-center justify-center text-sm text-muted-foreground">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t("settings.status.loading")}
-                  </div>
-                ) : !groupSkills || groupSkills.length === 0 ? (
-                  <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
-                ) : (
-                  groupSkills.map((s) => (
-                    <div key={s.name} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                      <div>
+              {skillsLoading ? (
+                <div className="flex h-16 items-center justify-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("settings.status.loading")}
+                </div>
+              ) : !groupSkills || groupSkills.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center rounded-[14px] border border-border/60 bg-card">
+                  <Sparkles className="h-6 w-6 text-muted-foreground/40 mb-2" />
+                  <p className="text-sm text-muted-foreground">{tx("settings.groups.noSkills", "No group skills")}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {groupSkills.map((s) => (
+                    <div
+                      key={s.name}
+                      className="group relative flex items-center gap-3 rounded-[14px] border border-border/60 bg-card p-3 transition-shadow hover:shadow-md"
+                    >
+                      <span className="flex-shrink-0 text-lg select-none">📄</span>
+                      <div className="min-w-0 flex-1">
                         <button
                           type="button"
-                          className="text-[13px] font-medium text-left hover:underline"
+                          className="text-[13px] font-semibold text-left hover:underline truncate block"
                           onClick={() => openViewSkill(s.name)}
                         >
                           {s.name}
                         </button>
                         <span className={cn(
-                          "ml-2 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold",
+                          "inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold",
                           "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
                         )}>
                           {s.source}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
                           onClick={() => openEditSkill(s.name)}
+                          aria-label={tx("settings.actions.edit", "Edit")}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -4745,14 +5324,15 @@ function GroupsSettings({ token }: { token: string }) {
                           size="icon"
                           className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
                           onClick={() => handleDeleteSkill(s.name)}
+                          aria-label={tx("settings.actions.delete", "Delete")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
-                  ))
-                )}
-              </SettingsGroup>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Settings section */}
@@ -4919,63 +5499,70 @@ function GroupsSettings({ token }: { token: string }) {
 
   // Group list view
   return (
-    <div className="space-y-7">
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <SettingsSectionTitle>{tx("settings.sections.groups", "Groups")}</SettingsSectionTitle>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setShowCreate(true)}
-            className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {tx("settings.groups.create", "Create group")}
-          </Button>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <SettingsSectionTitle>{tx("settings.sections.groups", "Groups")}</SettingsSectionTitle>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setShowCreate(true)}
+          className="h-8 gap-1.5 rounded-full px-3 text-[12px]"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {tx("settings.groups.create", "Create group")}
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          {t("settings.status.loading")}
         </div>
-        {loading ? (
-          <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t("settings.status.loading")}
-          </div>
-        ) : error ? (
-          <div className="flex h-32 items-center justify-center text-sm text-destructive">{error}</div>
-        ) : (
-          <SettingsGroup>
-            {!groups || groups.length === 0 ? (
-              <p className="text-sm text-muted-foreground p-4">{tx("settings.values.none", "None")}</p>
-            ) : (
-              groups.map((g) => (
-                <div key={g.id} className="flex items-center justify-between px-4 py-3 border-b last:border-b-0">
-                  <button
-                    type="button"
-                    className="text-left flex-1"
-                    onClick={() => setSelectedGroupId(g.id)}
-                  >
-                    <div className="text-[13px] font-medium">{g.displayName || g.name}</div>
-                    <div className="text-[12px] text-muted-foreground">{g.name}</div>
-                  </button>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-muted-foreground">
-                      {g.id.slice(0, 8)}...
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDelete(g.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+      ) : error ? (
+        <div className="flex h-32 items-center justify-center text-sm text-destructive">{error}</div>
+      ) : !groups || groups.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Users className="h-8 w-8 text-muted-foreground/40 mb-3" />
+          <p className="text-sm text-muted-foreground">{tx("settings.groups.empty", "No groups")}</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {groups.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => setSelectedGroupId(g.id)}
+              className="group relative flex flex-col rounded-[14px] border border-border/60 bg-card p-4 text-left transition-shadow hover:shadow-md cursor-pointer"
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <span className="flex-shrink-0 flex h-10 w-10 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-900/30 text-lg select-none">
+                  👥
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-semibold truncate">{g.displayName || g.name}</div>
+                  <p className="text-[12px] text-muted-foreground truncate">{g.name}</p>
                 </div>
-              ))
-            )}
-          </SettingsGroup>
-        )}
-      </section>
+              </div>
+              <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/30">
+                <span className="text-[11px] text-muted-foreground font-mono">
+                  {g.id.slice(0, 8)}...
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => { e.stopPropagation(); handleDelete(g.id); }}
+                  aria-label={tx("settings.actions.delete", "Delete")}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Create group dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

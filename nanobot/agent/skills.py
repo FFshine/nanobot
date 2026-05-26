@@ -130,7 +130,8 @@ class SkillsLoader:
             filter_unavailable: If True, filter out skills with unmet requirements.
 
         Returns:
-            List of skill info dicts with 'name', 'path', 'source'.
+            List of skill info dicts with 'name', 'path', 'source', 'description',
+            'emoji', 'always'.
         """
         # Ensure builtin symlinks are current so new builtin skills appear
         # in existing workspaces (idempotent — skips paths that already exist).
@@ -176,6 +177,14 @@ class SkillsLoader:
         disabled = self._effective_disabled_skills
         if disabled:
             skills = [s for s in skills if s["name"] not in disabled]
+
+        # Enrich entries with metadata (description, emoji, always flag)
+        for entry in skills:
+            meta = self.get_skill_metadata(entry["name"]) or {}
+            entry["description"] = meta.get("description", "")
+            nb = self._parse_nanobot_metadata(meta.get("metadata"))
+            entry["emoji"] = nb.get("emoji", "")
+            entry["always"] = bool(meta.get("always") or nb.get("always"))
 
         if filter_unavailable:
             return [skill for skill in skills if self._check_requirements(self._get_skill_meta(skill["name"]))]

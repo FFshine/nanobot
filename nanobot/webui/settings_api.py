@@ -256,6 +256,7 @@ def settings_payload(*, requires_restart: bool = False) -> dict[str, Any]:
             "bot_name": defaults.bot_name,
             "bot_icon": defaults.bot_icon,
             "tool_hint_max_length": defaults.tool_hint_max_length,
+            "disabled_skills": defaults.disabled_skills,
         },
         "model_presets": model_presets,
         "providers": providers,
@@ -402,6 +403,20 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             defaults.tool_hint_max_length = parsed
             changed = True
             restart_required = True
+
+    disabled_skills_raw = _query_first_alias(query, "disabled_skills", "disabledSkills")
+    if disabled_skills_raw is not None:
+        import json as _json
+
+        try:
+            parsed_skills: list[str] = _json.loads(disabled_skills_raw)
+            if not isinstance(parsed_skills, list) or not all(isinstance(s, str) for s in parsed_skills):
+                raise WebUISettingsError("disabled_skills must be a JSON array of strings")
+        except _json.JSONDecodeError:
+            raise WebUISettingsError("disabled_skills must be a valid JSON array") from None
+        if defaults.disabled_skills != parsed_skills:
+            defaults.disabled_skills = parsed_skills
+            changed = True
 
     if changed:
         save_config(config)
@@ -745,6 +760,22 @@ def update_user_skill_content(workspace_path: str, name: str, content: str) -> N
     skill_file.write_text(content, encoding="utf-8")
 
 
+def create_user_skill(workspace_path: str, name: str, content: str) -> dict[str, Any]:
+    """Create a new user skill directory with SKILL.md content."""
+    from pathlib import Path
+
+    skill_dir = _user_skill_dir(workspace_path, name)
+    if skill_dir.exists():
+        raise WebUISettingsError("skill already exists", status=409)
+    skills_root = (Path(workspace_path) / "skills").resolve()
+    if not str(skill_dir.resolve()).startswith(str(skills_root)):
+        raise WebUISettingsError("invalid skill path")
+    skill_dir.mkdir(parents=True, exist_ok=False)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(content, encoding="utf-8")
+    return {"created": name}
+
+
 def profile_files_payload(workspace_path: str) -> dict[str, Any]:
     """Return SOUL.md, USER.md, and MEMORY.md contents from *workspace_path*."""
     from pathlib import Path
@@ -769,6 +800,7 @@ def skills_list_payload(workspace_path: str, user_id: str | None = None) -> dict
     from pathlib import Path
 
     from nanobot.agent.skills import SkillsLoader, link_group_skills
+    from nanobot.config.loader import load_config
 
     # Symlink group skills into the workspace so they are discoverable
     # within the isolation boundary (same strategy as builtin skills).
@@ -783,12 +815,17 @@ def skills_list_payload(workspace_path: str, user_id: str | None = None) -> dict
             pass
 
     loader = SkillsLoader(Path(workspace_path))
+    config = load_config()
+    disabled = set(config.agents.defaults.disabled_skills)
     skills = []
     for skill in loader.list_skills(filter_unavailable=False):
         skills.append({
             "name": skill.get("name", ""),
             "description": skill.get("description", ""),
             "source": skill.get("source", ""),
+            "emoji": skill.get("emoji", ""),
+            "always": skill.get("always", False),
+            "disabled": skill["name"] in disabled,
         })
     return {"skills": skills}
 
