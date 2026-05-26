@@ -799,18 +799,18 @@ def skills_list_payload(workspace_path: str, user_id: str | None = None) -> dict
     """Return available skills (builtin + workspace + group)."""
     from pathlib import Path
 
-    from nanobot.agent.skills import SkillsLoader, link_group_skills
+    from nanobot.agent.skills import SkillsLoader
+    from nanobot.agent.tools.context import bind_group_workspaces
     from nanobot.config.loader import load_config
 
-    # Symlink group skills into the workspace so they are discoverable
-    # within the isolation boundary (same strategy as builtin skills).
+    # Bind group workspaces so SkillsLoader.list_skills() can discover group skills.
     if user_id:
         try:
             from nanobot.auth import get_user_groups
             from nanobot.config.paths import get_group_workspace_path
 
             group_ws = [get_group_workspace_path(g.id) for g in get_user_groups(user_id)]
-            link_group_skills(Path(workspace_path), group_ws)
+            bind_group_workspaces(group_ws)
         except Exception:
             pass
 
@@ -979,7 +979,6 @@ def group_member_remove(group_id: str, user_id: str) -> bool:
 
 
 def group_skills_list(group_id: str) -> dict[str, Any] | None:
-    from nanobot.agent.skills import SkillsLoader
     from nanobot.auth import get_group
     from nanobot.config.paths import get_group_workspace_path
 
@@ -988,8 +987,15 @@ def group_skills_list(group_id: str) -> dict[str, Any] | None:
         return None
     gws = get_group_workspace_path(group_id)
     skills_dir = gws / "skills"
-    loader = SkillsLoader(gws, builtin_skills_dir=skills_dir)
-    entries = loader._skill_entries_from_dir(skills_dir, "group") if skills_dir.is_dir() else []
+    entries: list[dict[str, str]] = []
+    if skills_dir.is_dir():
+        for d in sorted(skills_dir.iterdir()):
+            if d.is_dir() and (d / "SKILL.md").exists():
+                entries.append({
+                    "name": d.name,
+                    "path": str(d / "SKILL.md"),
+                    "source": "group",
+                })
     return {"skills": entries}
 
 

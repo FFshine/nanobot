@@ -18,61 +18,6 @@ _STRIP_SKILL_FRONTMATTER = re.compile(
 )
 
 
-def link_builtin_skills(
-    workspace: Path, builtin_skills_dir: Path | None = None
-) -> None:
-    """Symlink builtin skill dirs into ``{workspace}/skills/``.
-
-    Restricted users can only access paths inside their workspace, so
-    builtin skills must appear within that boundary.  Symlinks are created
-    only when the user does not already have a skill directory with the
-    same name (user skills shadow builtin ones).
-
-    Safe to call multiple times — existing links and user dirs are
-    silently skipped.
-    """
-    src = builtin_skills_dir or BUILTIN_SKILLS_DIR
-    if not src.is_dir():
-        return
-    skills_dir = workspace / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    for builtin_dir in src.iterdir():
-        if not builtin_dir.is_dir():
-            continue
-        link_path = skills_dir / builtin_dir.name
-        if link_path.exists():
-            continue
-        link_path.symlink_to(builtin_dir)
-
-
-def link_group_skills(workspace: Path, group_workspaces: list[Path]) -> None:
-    """Symlink group skill dirs into ``{workspace}/skills/``.
-
-    Like ``link_builtin_skills``, this ensures group skills are accessible
-    within the user's workspace boundary so the ``read_file`` tool can
-    read them.  User skills shadow group skills, and symlinks are skipped
-    when a directory with the same name already exists.
-
-    Safe to call multiple times — existing links and user dirs are
-    silently skipped.
-    """
-    if not group_workspaces:
-        return
-    skills_dir = workspace / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    for gws in group_workspaces:
-        gws_skills = gws / "skills"
-        if not gws_skills.is_dir():
-            continue
-        for skill_dir in gws_skills.iterdir():
-            if not skill_dir.is_dir():
-                continue
-            link_path = skills_dir / skill_dir.name
-            if link_path.exists():
-                continue
-            link_path.symlink_to(skill_dir)
-
-
 class SkillsLoader:
     """
     Loader for agent skills.
@@ -133,45 +78,32 @@ class SkillsLoader:
             List of skill info dicts with 'name', 'path', 'source', 'description',
             'emoji', 'always'.
         """
-        # Ensure builtin symlinks are current so new builtin skills appear
-        # in existing workspaces (idempotent — skips paths that already exist).
-        if self.builtin_skills and self.builtin_skills.exists():
-            link_builtin_skills(self.workspace, builtin_skills_dir=self.builtin_skills)
+        # 1. User skills from the effective workspace skills dir.
+        # Real user skills are always directories; skip symlinks (stale
+        # leftovers from a previous link_builtin_skills / link_group_skills).
+        user_skills = [
+            e
+            for e in self._skill_entries_from_dir(self._effective_workspace_skills, "user")
+            if not (self._effective_workspace_skills / e["name"]).is_symlink()
+        ]
+        used_names = {entry["name"] for entry in user_skills}
 
-        # Collect builtin names for symlink detection below.
-        builtin_names: set[str] = set()
-        if self.builtin_skills and self.builtin_skills.exists():
-            builtin_names = {
-                d.name
-                for d in self.builtin_skills.iterdir()
-                if d.is_dir() and (d / "SKILL.md").exists()
-            }
+        # 2. Group skills from per-turn group workspace bindings.
+        from nanobot.agent.tools.context import current_group_workspaces
 
-        # Scan workspace skills.  Symlinks pointing to builtin or group
-        # skill dirs are separated out so they get the correct source label
-        # (no delete button in UI for builtin/group skills).
-        all_workspace = self._skill_entries_from_dir(self._effective_workspace_skills, "user")
-        user_skills: list[dict[str, str]] = []
         group_skills: list[dict[str, str]] = []
-        for entry in all_workspace:
-            skill_dir = self._effective_workspace_skills / entry["name"]
-            if skill_dir.is_symlink():
-                if entry["name"] in builtin_names:
-                    continue  # handled by builtin pass below
-                target = os.readlink(skill_dir)
-                if "/workspaces/groups/" in target:
-                    entry["source"] = "group"
-                    group_skills.append(entry)
-                    continue
-            user_skills.append(entry)
+        for gws in current_group_workspaces():
+            gws_skills = gws / "skills"
+            entries = self._skill_entries_from_dir(gws_skills, "group", skip_names=used_names)
+            group_skills.extend(entries)
+            used_names.update(entry["name"] for entry in entries)
 
         skills = user_skills + group_skills
-        workspace_names = {entry["name"] for entry in skills}
 
-        # Builtin skills — shadowed by user and group skills
+        # 3. Builtin skills — shadowed by user and group skills
         if self.builtin_skills and self.builtin_skills.exists():
             skills.extend(
-                self._skill_entries_from_dir(self.builtin_skills, "builtin", skip_names=workspace_names)
+                self._skill_entries_from_dir(self.builtin_skills, "builtin", skip_names=used_names)
             )
 
         disabled = self._effective_disabled_skills
@@ -200,9 +132,13 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
-        # User/group skills first (symlinks bring group skills into workspace)
+        # User skills first, then group, then builtin (user > group > builtin).
         roots: list[Path] = [self._effective_workspace_skills]
-        # Builtin skills last
+
+        from nanobot.agent.tools.context import current_group_workspaces
+
+        for gws in current_group_workspaces():
+            roots.append(gws / "skills")
         if self.builtin_skills:
             roots.append(self.builtin_skills)
         for root in roots:

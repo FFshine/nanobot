@@ -681,6 +681,21 @@ class WebSocketChannel(BaseChannel):
             return None
         return user_obj.to_public()
 
+    def _require_group_member_or_admin(
+        self, request: WsRequest, group_id: str
+    ) -> dict | None:
+        """Require admin role or membership in *group_id*. Returns user dict or None."""
+        user = self._get_user_from_request(request)
+        if user is None:
+            return None
+        if user.get("role") == "admin":
+            return user
+        from nanobot.auth import get_user_groups
+
+        if any(g.id == group_id for g in get_user_groups(user["id"])):
+            return user
+        return None
+
     # -- Subscription bookkeeping -------------------------------------------
 
     def _attach(self, connection: Any, chat_id: str) -> None:
@@ -1411,8 +1426,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response({"removed": user_id})
 
     def _handle_group_skills(self, request: WsRequest, group_id: str) -> Response:
-        if not self._require_auth(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_group_member_or_admin(request, group_id):
+            return _http_error(403, "Forbidden")
         skills = group_skills_list(group_id)
         if skills is None:
             return _http_error(404, "Group not found")
@@ -1433,8 +1448,8 @@ class WebSocketChannel(BaseChannel):
         return _http_json_response(result)
 
     def _handle_group_skill_content(self, request: WsRequest, group_id: str, name: str) -> Response:
-        if not self._require_auth(request):
-            return _http_error(401, "Unauthorized")
+        if not self._require_group_member_or_admin(request, group_id):
+            return _http_error(403, "Forbidden")
         content = group_skill_content(group_id, name)
         if content is None:
             return _http_error(404, "Skill not found")
