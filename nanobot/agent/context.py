@@ -12,8 +12,8 @@ from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
 from nanobot.agent.tools import mcp as mcp_tools
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.bus.events import InboundMessage
 from nanobot.apps.cli import utils as cli_app_utils
+from nanobot.bus.events import InboundMessage
 from nanobot.session.goal_state import goal_state_runtime_lines
 from nanobot.utils.helpers import (
     current_time_str,
@@ -125,7 +125,7 @@ class ContextBuilder:
 
     def _get_identity(self, channel: str | None = None) -> str:
         """Get the core identity section."""
-        from nanobot.agent.tools.context import current_workspace, current_user_role
+        from nanobot.agent.tools.context import current_user_role, current_workspace
 
         effective_workspace = current_workspace() or self.workspace
         workspace_path = str(effective_workspace.expanduser().resolve())

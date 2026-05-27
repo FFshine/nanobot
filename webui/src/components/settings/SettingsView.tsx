@@ -144,6 +144,11 @@ export type SettingsSectionKey =
   | "image"
   | "web"
   | "apps"
+  | "profile"
+  | "skills"
+  | "cron"
+  | "users"
+  | "groups"
   | "runtime"
   | "advanced";
 
@@ -305,7 +310,7 @@ function editableDefaultProvider(payload: SettingsPayload): string {
 export function SettingsView({
   theme,
   initialSection = "overview",
-  showSidebar = true,
+  showSidebar,
   onToggleTheme,
   onBackToChat,
   onModelNameChange,
@@ -1212,6 +1217,15 @@ export function SettingsView({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,hsl(var(--muted))_0%,hsl(var(--background))_42%)] md:flex-row">
 
+      {showSidebar ? (
+        <SettingsSidebar
+          activeSection={activeSection}
+          onSelectSection={setActiveSection}
+          onBackToChat={onBackToChat}
+          onLogout={onLogout}
+          userGroups={userGroups}
+        />
+      ) : null}
 
       <NewModelConfigurationDialog
         open={modelConfigurationOpen}
@@ -1269,6 +1283,11 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "image", icon: ImageIcon, fallback: "Image" },
   { key: "web", icon: Globe2, fallback: "Web" },
   { key: "apps", icon: Blocks, fallback: "Apps" },
+  { key: "profile", icon: Bot, fallback: "Profile" },
+  { key: "skills", icon: Sparkles, fallback: "Skills" },
+  { key: "cron", icon: RotateCcw, fallback: "Cron" },
+  { key: "users", icon: Cloud, fallback: "Users" },
+  { key: "groups", icon: Users, fallback: "Groups" },
   { key: "runtime", icon: Server, fallback: "Runtime" },
   { key: "advanced", icon: ShieldCheck, fallback: "Advanced" },
 ];
