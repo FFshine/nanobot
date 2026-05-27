@@ -125,12 +125,13 @@ class ContextBuilder:
 
     def _get_identity(self, channel: str | None = None) -> str:
         """Get the core identity section."""
-        from nanobot.agent.tools.context import current_workspace
+        from nanobot.agent.tools.context import current_workspace, current_user_role
 
         effective_workspace = current_workspace() or self.workspace
         workspace_path = str(effective_workspace.expanduser().resolve())
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
+        user_role = current_user_role()
 
         return render_template(
             "agent/identity.md",
@@ -138,6 +139,7 @@ class ContextBuilder:
             runtime=runtime,
             platform_policy=render_template("agent/platform_policy.md", system=system),
             channel=channel or "",
+            user_role=user_role,
         )
 
     @staticmethod
