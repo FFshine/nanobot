@@ -589,9 +589,6 @@ class ExecTool(Tool):
             for raw in self._extract_absolute_paths(cmd):
                 try:
                     expanded = os.path.expandvars(raw.strip())
-                    # Match against the un-resolved path first.  On Linux,
-                    # /dev/stderr is a symlink to /proc/self/fd/2 and
-                    # ``Path.resolve()`` would mask the device-file intent.
                     if self._is_benign_device_path(expanded):
                         continue
                     p = Path(expanded).expanduser().resolve()
@@ -655,4 +652,14 @@ class ExecTool(Tool):
         )
         posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command) # POSIX: /absolute only
         home_paths = re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~
-        return win_paths + posix_paths + home_paths
+
+        # Also extract paths hidden inside command substitutions $(...) and `...`
+        # so that ``cat $(echo /etc/passwd)`` or ``cat `echo /etc/passwd` `` are caught.
+        sub_contents = re.findall(r"\$\(([^)]+)\)", command)
+        sub_contents += re.findall(r"`([^`]+)`", command)
+        sub_paths: list[str] = []
+        for inner in sub_contents:
+            sub_paths.extend(re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", inner))
+            sub_paths.extend(re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", inner))
+
+        return win_paths + posix_paths + home_paths + sub_paths

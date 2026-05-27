@@ -1,5 +1,6 @@
 """Shared path helpers for workspace-scoped tools."""
 
+import os
 from pathlib import Path
 
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
@@ -23,6 +24,36 @@ def is_under(path: Path, directory: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def is_path_safe(path_str: str, allowed_dirs: list[Path]) -> tuple[bool, str]:
+    """Check whether *path_str* resolves under one of *allowed_dirs*.
+
+    Returns ``(True, "")`` when safe, ``(False, reason)`` when it escapes.
+    Handles ``~`` expansion, environment variables, and symlink resolution.
+    """
+    try:
+        p = Path(path_str).expanduser()
+        # Expand environment variables so $HOME/../etc is resolved correctly.
+        expanded = os.path.expandvars(str(p))
+        resolved = Path(expanded).resolve()
+    except Exception as e:
+        return False, f"cannot resolve path: {e}"
+
+    for d in allowed_dirs:
+        try:
+            resolved.relative_to(d.resolve())
+            return True, ""
+        except ValueError:
+            pass
+        # Also allow the directory itself (not just children).
+        try:
+            if resolved == d.resolve():
+                return True, ""
+        except Exception:
+            pass
+
+    return False, "path resolves outside allowed directories"
 
 
 def resolve_workspace_path(

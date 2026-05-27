@@ -109,6 +109,7 @@ _MCP_VALUES_HEADER = "X-Nanobot-MCP-Values"
 _MCP_VALUES_HEADER_MAX_BYTES = 64 * 1024
 
 if TYPE_CHECKING:
+    from nanobot.cron.service import CronService
     from nanobot.session.manager import SessionManager
 
 
@@ -325,8 +326,12 @@ def _parse_inbound_payload(raw: str) -> str | None:
             for key in ("content", "text", "message"):
                 value = data.get(key)
                 if isinstance(value, str) and value.strip():
+                    if len(value) > _MAX_CONTENT_LENGTH:
+                        return None
                     return value
             return None
+        return None
+    if len(text) > _MAX_CONTENT_LENGTH:
         return None
     return text
 
@@ -334,6 +339,15 @@ def _parse_inbound_payload(raw: str) -> str | None:
 # Accept UUIDs and short scoped keys like "unified:default". Keeps the capability
 # namespace small enough to rule out path traversal / quote injection tricks.
 _CHAT_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
+
+# Input validation limits to prevent abuse across all entry points.
+_MAX_CONTENT_LENGTH = 50_000       # chars for a single message
+_MAX_USERNAME_LENGTH = 64
+_MAX_PASSWORD_LENGTH = 128
+_MAX_SKILL_NAME_LENGTH = 128
+_MAX_SKILL_CONTENT_LENGTH = 100_000
+_MAX_SETTINGS_PAYLOAD_LENGTH = 50_000
+_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_\-\.]{1,128}$")
 
 
 def _is_valid_chat_id(value: Any) -> bool:
@@ -584,7 +598,6 @@ class WebSocketChannel(BaseChannel):
         self._chat_user: dict[str, str] = {}
         # Per-user component factories — lazily created on first access
         self._user_workspaces: dict[str, Path] = {}
-        self._user_session_managers: dict[str, "SessionManager"] = {}
         self._user_cron_services: dict[str, "CronService"] = {}
 
     # -- Per-user component helpers -------------------------------------------
@@ -597,17 +610,18 @@ class WebSocketChannel(BaseChannel):
         return self._user_workspaces[user_id]
 
     def _get_user_session_manager(self, user_id: str) -> "SessionManager":
-        if user_id not in self._user_session_managers:
-            # Legacy tokens resolve to __legacy__; use the global store when
-            # one was injected (production or test) so pre-migration data and
-            # test mocks are reachable.
-            if self._session_manager is not None and user_id == "__legacy__":
-                return self._session_manager
-            from nanobot.session.manager import SessionManager
+        from nanobot.session.manager import SessionManager, SessionManagerRegistry
 
-            ws = self._get_user_workspace(user_id)
-            self._user_session_managers[user_id] = SessionManager(ws)
-        return self._user_session_managers[user_id]
+        # Legacy tokens resolve to __legacy__; use the global store when
+        # one was injected (production or test) so pre-migration data and
+        # test mocks are reachable.
+        if self._session_manager is not None and user_id == "__legacy__":
+            return self._session_manager
+
+        return SessionManagerRegistry.get_or_create(
+            user_id,
+            lambda: SessionManager(self._get_user_workspace(user_id)),
+        )
 
     def _get_user_cron_service(self, user_id: str) -> "CronService":
         from nanobot.cron.service import CronService
@@ -878,6 +892,12 @@ class WebSocketChannel(BaseChannel):
         m = re.match(r"^/api/auth/users/([^/]+)/delete$", got)
         if m:
             return self._handle_auth_user_delete(request, m.group(1))
+        m = re.match(r"^/api/auth/users/([^/]+)/password$", got)
+        if m:
+            return self._handle_auth_user_password(request, m.group(1))
+        m = re.match(r"^/api/auth/users/([^/]+)$", got)
+        if m:
+            return self._handle_auth_user_update(request, m.group(1))
         if got == "/api/auth/users/create":
             return self._handle_auth_user_create(request)
 
@@ -993,6 +1013,10 @@ class WebSocketChannel(BaseChannel):
         m = re.match(r"^/api/groups/([^/]+)/members/([^/]+)/remove$", got)
         if m:
             return self._handle_group_member_remove(request, m.group(1), m.group(2))
+
+        m = re.match(r"^/api/groups/([^/]+)/members/([^/]+)/update$", got)
+        if m:
+            return self._handle_group_member_update(request, m.group(1), m.group(2))
 
         m = re.match(r"^/api/groups/([^/]+)/skills$", got)
         if m:
@@ -1188,8 +1212,12 @@ class WebSocketChannel(BaseChannel):
         password = (_query_first(query, "password") or "").strip()
         if not username or not password:
             return _http_error(400, "username and password are required")
+        if len(username) > _MAX_USERNAME_LENGTH:
+            return _http_error(400, f"Username must be at most {_MAX_USERNAME_LENGTH} characters")
         if len(password) < 6:
             return _http_error(400, "Password must be at least 6 characters")
+        if len(password) > _MAX_PASSWORD_LENGTH:
+            return _http_error(400, f"Password must be at most {_MAX_PASSWORD_LENGTH} characters")
         try:
             user = create_user(username, password, display_name=username, role="admin")
             return _http_json_response({"ok": True, "user": user.to_public()})
@@ -1214,6 +1242,82 @@ class WebSocketChannel(BaseChannel):
             return _http_error(404, "User not found")
         return _http_json_response({"ok": True})
 
+    def _handle_auth_user_update(self, request: WsRequest, target_id: str) -> Response:
+        """Update a user's display_name, role, or active status. Admin only."""
+        admin = self._require_admin(request)
+        if admin is None:
+            return _http_error(403, "Admin only")
+        query = _parse_query(request.path)
+        display_name = _query_first(query, "display_name")
+        role = _query_first(query, "role")
+        is_active = _query_first(query, "is_active")
+        password = _query_first(query, "password")
+        kwargs: dict[str, Any] = {}
+        if display_name is not None:
+            display_name = display_name.strip()
+            if len(display_name) > _MAX_USERNAME_LENGTH:
+                return _http_error(400, f"Display name must be at most {_MAX_USERNAME_LENGTH} characters")
+            kwargs["display_name"] = display_name
+        if role is not None:
+            role = role.strip()
+            if role not in ("admin", "user"):
+                return _http_error(400, "role must be 'admin' or 'user'")
+            kwargs["role"] = role
+        if is_active is not None:
+            kwargs["is_active"] = is_active.lower() in ("true", "1", "yes")
+        if password is not None:
+            if len(password) < 6:
+                return _http_error(400, "Password must be at least 6 characters")
+            if len(password) > _MAX_PASSWORD_LENGTH:
+                return _http_error(400, f"Password must be at most {_MAX_PASSWORD_LENGTH} characters")
+            kwargs["password"] = password
+        if not kwargs:
+            return _http_error(400, "No fields to update")
+        from nanobot.auth import get_user_by_id, update_user
+
+        existing = get_user_by_id(target_id)
+        if existing is None:
+            return _http_error(404, "User not found")
+        updated = update_user(target_id, **kwargs)
+        return _http_json_response({"user": updated.to_public() if updated else None})
+
+    def _handle_auth_user_password(self, request: WsRequest, target_id: str) -> Response:
+        """Allow a user to change their own password, or an admin to reset any user's password."""
+        admin = self._require_admin(request)
+        query = _parse_query(request.path)
+        current_password = _query_first(query, "current_password")
+        new_password = _query_first(query, "new_password")
+        if not new_password:
+            return _http_error(400, "new_password is required")
+        if len(new_password) < 6:
+            return _http_error(400, "Password must be at least 6 characters")
+        if len(new_password) > _MAX_PASSWORD_LENGTH:
+            return _http_error(400, f"Password must be at most {_MAX_PASSWORD_LENGTH} characters")
+
+        from nanobot.auth import authenticate_user, get_user_by_id, update_user
+
+        is_admin_request = admin is not None
+        if is_admin_request:
+            # Admin resetting another user's password — no current password needed.
+            target_user = get_user_by_id(target_id)
+            if target_user is None:
+                return _http_error(404, "User not found")
+        else:
+            # Self-service: verify current password first.
+            if not current_password:
+                return _http_error(400, "current_password is required for self-service password change")
+            user = self._require_auth(request)
+            if user is None:
+                return _http_error(401, "Unauthorized")
+            target_user = get_user_by_id(target_id)
+            if target_user is None or target_user.id != user["id"]:
+                return _http_error(403, "Cannot change another user's password")
+            if not authenticate_user(target_user.username, current_password):
+                return _http_error(400, "Current password is incorrect")
+
+        update_user(target_id, password=new_password)
+        return _http_json_response({"ok": True})
+
     def _handle_auth_user_create(self, request: WsRequest) -> Response:
         admin = self._require_admin(request)
         if admin is None:
@@ -1224,8 +1328,12 @@ class WebSocketChannel(BaseChannel):
         role = (_query_first(query, "role") or "user").strip()
         if not username or not password:
             return _http_error(400, "username and password are required")
+        if len(username) > _MAX_USERNAME_LENGTH:
+            return _http_error(400, f"Username must be at most {_MAX_USERNAME_LENGTH} characters")
         if len(password) < 6:
             return _http_error(400, "Password must be at least 6 characters")
+        if len(password) > _MAX_PASSWORD_LENGTH:
+            return _http_error(400, f"Password must be at most {_MAX_PASSWORD_LENGTH} characters")
         if role not in ("admin", "user"):
             return _http_error(400, "role must be 'admin' or 'user'")
         try:
@@ -1341,8 +1449,6 @@ class WebSocketChannel(BaseChannel):
         user = self._require_auth(request)
         if user is None:
             return _http_error(401, "Unauthorized")
-        from pathlib import Path
-
         from nanobot.agent.skills import SkillsLoader
         from nanobot.agent.tools.context import bind_group_workspaces
 
@@ -1371,6 +1477,8 @@ class WebSocketChannel(BaseChannel):
         content = _query_first(query, "content")
         if content is None:
             return _http_error(400, "missing content")
+        if len(content) > _MAX_SKILL_CONTENT_LENGTH:
+            return _http_error(400, f"Content must be at most {_MAX_SKILL_CONTENT_LENGTH} characters")
         ws = self._get_user_workspace(user["id"])
         try:
             update_user_skill_content(str(ws), name, content)
@@ -1385,10 +1493,14 @@ class WebSocketChannel(BaseChannel):
         from nanobot.webui.settings_api import create_user_skill
 
         query = _parse_query(request.path)
-        name = _query_first_alias(query, "name") or ""
+        name = _query_first(query, "name") or ""
         content = _query_first(query, "content")
         if not name or content is None:
             return _http_error(400, "missing name or content")
+        if len(name) > _MAX_SKILL_NAME_LENGTH:
+            return _http_error(400, f"Skill name must be at most {_MAX_SKILL_NAME_LENGTH} characters")
+        if len(content) > _MAX_SKILL_CONTENT_LENGTH:
+            return _http_error(400, f"Content must be at most {_MAX_SKILL_CONTENT_LENGTH} characters")
         ws = self._get_user_workspace(user["id"])
         try:
             result = create_user_skill(str(ws), name, content)
@@ -1486,6 +1598,23 @@ class WebSocketChannel(BaseChannel):
         if not ok:
             return _http_error(404, "Member not found")
         return _http_json_response({"removed": user_id})
+
+    def _handle_group_member_update(self, request: WsRequest, group_id: str, user_id: str) -> Response:
+        if not self._require_admin_for_token(request):
+            return _http_error(403, "Admin required")
+        query = _parse_query(request.path)
+        role = _query_first(query, "role")
+        if role is None:
+            return _http_error(400, "role is required")
+        role = role.strip()
+        if role not in ("admin", "member"):
+            return _http_error(400, "role must be 'admin' or 'member'")
+        from nanobot.auth import update_group_member
+
+        updated = update_group_member(group_id, user_id, role=role)
+        if updated is None:
+            return _http_error(404, "Member not found")
+        return _http_json_response({"member": {"groupId": group_id, "userId": user_id, "role": role}})
 
     def _handle_group_skills(self, request: WsRequest, group_id: str) -> Response:
         if not self._require_group_member_or_admin(request, group_id):
@@ -1962,9 +2091,6 @@ class WebSocketChannel(BaseChannel):
         rel = request_path.lstrip("/")
         if not rel:
             rel = "index.html"
-        # Reject path-traversal attempts and absolute targets.
-        if ".." in rel.split("/") or rel.startswith("/"):
-            return _http_error(403, "Forbidden")
         candidate = (self._static_dist_path / rel).resolve()
         try:
             candidate.relative_to(self._static_dist_path)
@@ -2079,11 +2205,10 @@ class WebSocketChannel(BaseChannel):
         _, query = _parse_request_path(path_part)
         client_id_raw = _query_first(query, "client_id")
         client_id = client_id_raw.strip() if client_id_raw else ""
-        if not client_id:
+        if not client_id or not _CLIENT_ID_RE.match(client_id):
+            if client_id and not _CLIENT_ID_RE.match(client_id):
+                self.logger.warning("client_id failed whitelist, generating anonymous id")
             client_id = f"anon-{uuid.uuid4().hex[:12]}"
-        elif len(client_id) > 128:
-            self.logger.warning("client_id too long ({} chars), truncating", len(client_id))
-            client_id = client_id[:128]
 
         default_chat_id = str(uuid.uuid4())
 

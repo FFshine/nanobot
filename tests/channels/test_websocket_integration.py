@@ -456,7 +456,9 @@ async def test_large_message(bus: MagicMock) -> None:
             big = "x" * 100_000
             await c.send_text(big)
             await asyncio.sleep(0.2)
-            assert bus.publish_inbound.call_args[0][0].content == big
+            # Messages over _MAX_CONTENT_LENGTH (50k chars) are silently dropped —
+            # the bus should not receive anything.
+            bus.publish_inbound.assert_not_called()
     finally:
         await ch.stop(); await t
 

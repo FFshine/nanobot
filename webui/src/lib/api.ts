@@ -522,6 +522,39 @@ export async function deleteUser(
   return request(`${base}/api/auth/users/${encodeURIComponent(userId)}/delete`, token);
 }
 
+export type UserPayload = { id: string; username: string; displayName: string; role: string; isActive?: boolean; createdAt?: string; updatedAt?: string };
+
+export async function updateUser(
+  token: string,
+  userId: string,
+  params: {
+    displayName?: string;
+    role?: string;
+    isActive?: boolean;
+    password?: string;
+  },
+  base: string = "",
+): Promise<{ user: UserPayload }> {
+  const query = new URLSearchParams();
+  if (params.displayName !== undefined) query.set("displayName", params.displayName);
+  if (params.role !== undefined) query.set("role", params.role);
+  if (params.isActive !== undefined) query.set("isActive", String(params.isActive));
+  if (params.password !== undefined) query.set("password", params.password);
+  return request(`${base}/api/auth/users/${encodeURIComponent(userId)}?${query}`, token);
+}
+
+export async function changeUserPassword(
+  token: string,
+  userId: string,
+  params: { currentPassword?: string; newPassword: string },
+  base: string = "",
+): Promise<{ ok: boolean }> {
+  const query = new URLSearchParams();
+  if (params.currentPassword !== undefined) query.set("current_password", params.currentPassword);
+  query.set("new_password", params.newPassword);
+  return request(`${base}/api/auth/users/${encodeURIComponent(userId)}/password?${query}`, token);
+}
+
 // -- My groups (current user) ---------------------------------------------------
 
 export interface MyGroupsPayload {
@@ -656,6 +689,21 @@ export async function removeGroupMember(
 ): Promise<{ removed: string }> {
   return request(
     `${base}/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}/remove`,
+    token,
+  );
+}
+
+export async function updateGroupMember(
+  token: string,
+  groupId: string,
+  userId: string,
+  role: "admin" | "member",
+  base: string = "",
+): Promise<{ member: { groupId: string; userId: string; role: string } }> {
+  const query = new URLSearchParams();
+  query.set("role", role);
+  return request(
+    `${base}/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}/update?${query}`,
     token,
   );
 }

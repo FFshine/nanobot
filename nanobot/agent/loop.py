@@ -259,8 +259,6 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
         self.sessions = session_manager or SessionManager(workspace)
-        # Per-user SessionManager instances (lazily created, keyed by user_id)
-        self._user_session_managers: dict[str, SessionManager] = {}
         # Per-user MemoryStore and Consolidator instances for history isolation
         self._user_memory_stores: dict[str, MemoryStore] = {}
         self._user_consolidators: dict[str, Consolidator] = {}
@@ -661,15 +659,22 @@ class AgentLoop:
         When the key embeds a user_id (e.g. ``websocket:user123:chat456``)
         the per-user session manager is returned so that data is isolated.
         Otherwise the global session manager is used.
+
+        Per-user managers live in a module-level registry so that
+        ``WebSocketChannel`` and ``AgentLoop`` share the same instance.
         """
+        from nanobot.session.manager import SessionManagerRegistry
+
         user_id = self._user_id_from_session_key(session_key)
         if not user_id:
             return self.sessions
-        if user_id not in self._user_session_managers:
-            ws = get_workspace_path(user_id=user_id)
-            sync_workspace_templates(ws, silent=True)
-            self._user_session_managers[user_id] = SessionManager(ws)
-        return self._user_session_managers[user_id]
+        existing = SessionManagerRegistry.get(user_id)
+        if existing is not None:
+            return existing
+        return SessionManagerRegistry.get_or_create(
+            user_id,
+            lambda: SessionManager(get_workspace_path(user_id=user_id)),
+        )
 
     def _get_user_memory_store(self, user_id: str) -> MemoryStore:
         """Return the per-user MemoryStore for *user_id*."""

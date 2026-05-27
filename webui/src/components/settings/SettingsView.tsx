@@ -26,6 +26,7 @@ import {
   Hexagon,
   ImageIcon,
   Info,
+  Key,
   Layers,
   Loader2,
   LogOut,
@@ -86,6 +87,8 @@ import {
   fetchUsers,
   createUser,
   deleteUser,
+  updateUser,
+  changeUserPassword,
   fetchGroups,
   createGroup,
   deleteGroup,
@@ -93,6 +96,7 @@ import {
   fetchGroupMembers,
   addGroupMember,
   removeGroupMember,
+  updateGroupMember,
   updateGroup,
   fetchGroupSkills,
   fetchGroupSkillContent,
@@ -4734,7 +4738,7 @@ function UsersSettings({
   token,
   onChanged,
 }: {
-  users: Array<{ id: string; username: string; displayName: string; role: string }> | null;
+  users: Array<{ id: string; username: string; displayName: string; role: string; isActive?: boolean }> | null;
   token: string;
   onChanged: () => void;
 }) {
@@ -4749,6 +4753,21 @@ function UsersSettings({
   const [deleting, setDeleting] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "user">("all");
+
+  // Edit user dialog state
+  const [editUser, setEditUser] = useState<{ id: string; username: string; displayName: string; role: string; isActive?: boolean } | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editRole, setEditRole] = useState("user");
+  const [editActive, setEditActive] = useState(true);
+  const [editError, setEditError] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+
+  // Password change dialog state
+  const [pwUser, setPwUser] = useState<{ id: string; username: string; displayName: string } | null>(null);
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [pwError, setPwError] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
 
   const list = users ?? [];
 
@@ -4805,6 +4824,58 @@ function UsersSettings({
       // ignore
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const openEdit = (u: { id: string; username: string; displayName: string; role: string; isActive?: boolean }) => {
+    setEditUser(u);
+    setEditDisplayName(u.displayName || "");
+    setEditRole(u.role);
+    setEditActive(u.isActive !== false);
+    setEditError("");
+  };
+
+  const handleEditSave = async () => {
+    if (!editUser) return;
+    setEditError("");
+    setEditBusy(true);
+    try {
+      await updateUser(token, editUser.id, {
+        displayName: editDisplayName,
+        role: editRole,
+        isActive: editActive,
+      });
+      setEditUser(null);
+      onChanged();
+    } catch (e: any) {
+      setEditError(e?.message || String(e));
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const openPasswordChange = (u: { id: string; username: string; displayName: string }) => {
+    setPwUser(u);
+    setCurrentPw("");
+    setNewPw("");
+    setPwError("");
+  };
+
+  const handlePasswordChange = async () => {
+    if (!pwUser) return;
+    setPwError("");
+    if (newPw.length < 6) {
+      setPwError(tx("settings.users.passwordMinLength", "Password must be at least 6 characters"));
+      return;
+    }
+    setPwBusy(true);
+    try {
+      await changeUserPassword(token, pwUser.id, { currentPassword: currentPw, newPassword: newPw });
+      setPwUser(null);
+    } catch (e: any) {
+      setPwError(e?.message || String(e));
+    } finally {
+      setPwBusy(false);
     }
   };
 
@@ -4902,7 +4973,27 @@ function UsersSettings({
                 </div>
 
                 {admin && (
-                  <div className="flex items-center justify-end mt-auto pt-2 border-t border-border/30">
+                  <div className="flex items-center justify-end mt-auto pt-2 border-t border-border/30 gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded-full text-muted-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => openPasswordChange(u)}
+                      aria-label={tx("settings.users.changePassword", "Change password")}
+                    >
+                      <Key className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded-full text-muted-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => openEdit(u)}
+                      aria-label={tx("settings.actions.edit", "Edit")}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                       type="button"
                       variant="ghost"
@@ -4975,6 +5066,111 @@ function UsersSettings({
             </Button>
             <Button type="button" onClick={handleCreate} disabled={busy} className="h-9 rounded-[10px]">
               {busy ? t("settings.actions.saving") : t("settings.actions.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit user dialog */}
+      <Dialog open={editUser !== null} onOpenChange={(v) => !v && setEditUser(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{tx("settings.users.editTitle", "Edit user")}</DialogTitle>
+            <DialogDescription>
+              {editUser ? `@${editUser.username}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.users.displayName", "Display name")}</label>
+              <Input
+                value={editDisplayName}
+                onChange={(e) => setEditDisplayName(e.target.value)}
+                placeholder={tx("settings.users.displayNamePlaceholder", "Enter display name")}
+                className="h-9 rounded-[10px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.users.role", "Role")}</label>
+              <select
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value)}
+                className="flex h-9 w-full rounded-[10px] border border-input bg-background px-3 py-1 text-[13px] shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="user">{tx("settings.users.roleUser", "User")}</option>
+                <option value="admin">{tx("settings.users.roleAdmin", "Admin")}</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.users.active", "Active")}</label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditActive(true)}
+                  className={cn(
+                    "inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium transition-colors",
+                    editActive ? "bg-foreground text-background" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {tx("settings.users.activeYes", "Active")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditActive(false)}
+                  className={cn(
+                    "inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium transition-colors",
+                    !editActive ? "bg-destructive/80 text-white" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {tx("settings.users.activeNo", "Inactive")}
+                </button>
+              </div>
+            </div>
+            {editError ? (
+              <p className="text-[12px] text-destructive">{editError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditUser(null)} className="h-9 rounded-[10px]">
+              {t("settings.actions.cancel")}
+            </Button>
+            <Button type="button" onClick={handleEditSave} disabled={editBusy} className="h-9 rounded-[10px]">
+              {editBusy ? t("settings.actions.saving") : t("settings.actions.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Password change dialog */}
+      <Dialog open={pwUser !== null} onOpenChange={(v) => !v && setPwUser(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{tx("settings.users.changePassword", "Change password")}</DialogTitle>
+            <DialogDescription>
+              {pwUser ? `${pwUser.displayName || pwUser.username} (@${pwUser.username})` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{tx("settings.users.newPassword", "New password")}</label>
+              <Input
+                type="password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                placeholder={tx("settings.users.newPasswordPlaceholder", "Enter new password")}
+                className="h-9 rounded-[10px]"
+              />
+            </div>
+            {pwError ? (
+              <p className="text-[12px] text-destructive">{pwError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPwUser(null)} className="h-9 rounded-[10px]">
+              {t("settings.actions.cancel")}
+            </Button>
+            <Button type="button" onClick={handlePasswordChange} disabled={pwBusy} className="h-9 rounded-[10px]">
+              {pwBusy ? t("settings.actions.saving") : t("settings.actions.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5161,6 +5357,14 @@ function GroupsSettings({ token }: { token: string }) {
     } catch (e: any) { /* ignore */ }
   };
 
+  const handleChangeMemberRole = async (userId: string, newRole: "admin" | "member") => {
+    if (!selectedGroupId) return;
+    try {
+      await updateGroupMember(token, selectedGroupId, userId, newRole);
+      loadGroupDetail(selectedGroupId);
+    } catch (e: any) { /* ignore */ }
+  };
+
   const handleSaveSettings = async () => {
     if (!selectedGroupId) return;
     setSettingsSaving(true);
@@ -5324,16 +5528,28 @@ function GroupsSettings({ token }: { token: string }) {
                           </span>
                         </div>
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                        onClick={() => handleRemoveMember(m.userId)}
-                        aria-label={tx("settings.groups.removeMember", "Remove member")}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-full text-muted-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleChangeMemberRole(m.userId, m.role === "admin" ? "member" : "admin")}
+                          aria-label={tx("settings.groups.changeRole", "Change role")}
+                        >
+                          <Shield className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/8 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleRemoveMember(m.userId)}
+                          aria-label={tx("settings.groups.removeMember", "Remove member")}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

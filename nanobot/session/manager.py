@@ -8,7 +8,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Optional
 
 from loguru import logger
 
@@ -702,3 +702,37 @@ class SessionManager:
                 continue
 
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
+
+
+class SessionManagerRegistry:
+    """Module-level singleton that maps ``user_id`` -> ``SessionManager``.
+
+    Both ``AgentLoop`` and ``WebSocketChannel`` use this registry so that a
+    given user has exactly one ``SessionManager`` instance, avoiding duplicate
+    file locks and stale in-memory caches.
+    """
+
+    _managers: ClassVar[dict[str, SessionManager]] = {}
+
+    @classmethod
+    def get(cls, user_id: str) -> Optional[SessionManager]:
+        return cls._managers.get(user_id)
+
+    @classmethod
+    def get_or_create(cls, user_id: str, factory: Any) -> SessionManager:
+        """Return the cached manager for *user_id*, or call *factory()* to create one."""
+        if user_id not in cls._managers:
+            cls._managers[user_id] = factory()
+        return cls._managers[user_id]
+
+    @classmethod
+    def set(cls, user_id: str, sm: SessionManager) -> None:
+        cls._managers[user_id] = sm
+
+    @classmethod
+    def remove(cls, user_id: str) -> None:
+        cls._managers.pop(user_id, None)
+
+    @classmethod
+    def clear(cls) -> None:
+        cls._managers.clear()

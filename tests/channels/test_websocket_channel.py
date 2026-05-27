@@ -1478,7 +1478,7 @@ async def test_allow_from_rejects_unauthorized_client_id(bus: MagicMock) -> None
 
 
 @pytest.mark.asyncio
-async def test_client_id_truncation(bus: MagicMock) -> None:
+async def test_client_id_sanitization(bus: MagicMock) -> None:
     port = 29883
     channel = _ch(bus, port=port)
 
@@ -1486,11 +1486,19 @@ async def test_client_id_truncation(bus: MagicMock) -> None:
     await asyncio.sleep(0.3)
 
     try:
-        long_id = "x" * 200
-        async with websockets.connect(f"ws://127.0.0.1:{port}/ws?client_id={long_id}") as client:
+        # Invalid characters (whitelist only allows alphanum, _, -, .) should
+        # result in an anonymous client_id rather than truncation.
+        invalid_id = "x" * 200
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws?client_id={invalid_id}") as client:
             ready = json.loads(await client.recv())
-            assert ready["client_id"] == "x" * 128
-            assert len(ready["client_id"]) == 128
+            assert ready["client_id"].startswith("anon-")
+            assert len(ready["client_id"]) < 128
+
+        # Valid id in range should be preserved.
+        valid_id = "my-client_42"
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws?client_id={valid_id}") as client:
+            ready = json.loads(await client.recv())
+            assert ready["client_id"] == valid_id
     finally:
         await channel.stop()
         await server_task

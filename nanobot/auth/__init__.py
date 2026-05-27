@@ -31,6 +31,7 @@ __all__ = [
     "delete_group",
     # Group membership
     "add_group_member",
+    "update_group_member",
     "remove_group_member",
     "get_group_members",
     "get_user_groups",
@@ -242,6 +243,23 @@ def delete_group(group_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # Group membership
 # ---------------------------------------------------------------------------
+
+
+def update_group_member(group_id: str, user_id: str, *, role: str | None = None) -> GroupMember | None:
+    db = get_db()
+    row = db.execute(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, user_id),
+    ).fetchone()
+    if not row:
+        return None
+    if role is not None:
+        db.execute(
+            "UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ?",
+            (role, group_id, user_id),
+        )
+        db.commit()
+    return GroupMember(group_id=group_id, user_id=user_id, role=role or "member")
 
 
 def add_group_member(group_id: str, user_id: str, *, role: str = "member") -> GroupMember:
