@@ -23,9 +23,16 @@ def _bwrap(
     Only the workspace is bind-mounted read-write; its parent dir (which holds
     config.json) is hidden behind a fresh tmpfs.  The media directory is
     bind-mounted read-only so exec commands can read uploaded attachments.
-    Group workspace directories are bind-mounted read-write so admins can
-    manage shared group skills.
+
+    Group workspace directories are bind-mounted **read-write** for admin
+    users (so they can manage shared skills) and **read-only** for non-admin
+    users.  ``--ro-bind`` still allows scripts and binaries to be read +
+    executed (``execve`` only needs read permission); it only prevents writes.
     """
+    from nanobot.agent.tools.context import current_user_role
+
+    is_admin = current_user_role() == "admin"
+
     ws = Path(workspace).resolve()
     media = get_media_dir().resolve()
 
@@ -39,8 +46,10 @@ def _bwrap(
                  "/etc/ssl/certs", "/etc/resolv.conf", "/etc/ld.so.cache"]
 
     args = ["bwrap", "--new-session", "--die-with-parent"]
-    for p in required: args += ["--ro-bind",     p, p]
-    for p in optional: args += ["--ro-bind-try", p, p]
+    for p in required:
+        args += ["--ro-bind", p, p]
+    for p in optional:
+        args += ["--ro-bind-try", p, p]
     args += [
         "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
         "--tmpfs", str(ws.parent),        # mask config dir
@@ -49,12 +58,11 @@ def _bwrap(
         "--ro-bind-try", str(media), str(media),  # read-only access to media
         "--ro-bind-try", str(BUILTIN_SKILLS_DIR), str(BUILTIN_SKILLS_DIR),
     ]
-    # Bind-mount group workspace directories so the agent can read/write
-    # shared group skills from within the sandbox.
+    mount_flag = "--bind" if is_admin else "--ro-bind"
     for gws in (group_workspaces or []):
         gws_path = Path(gws).resolve()
         if gws_path.exists():
-            args += ["--bind", str(gws_path), str(gws_path)]
+            args += [mount_flag, str(gws_path), str(gws_path)]
     args += [
         "--chdir", sandbox_cwd,
         "--", "sh", "-c", command,

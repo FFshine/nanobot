@@ -186,6 +186,9 @@ class ExecTool(Tool):
             r"\b(?:cp|mv)\b(?:\s+[^\s|;&<>]+)+\s+\S*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target
             r"\bdd\b[^|;&<>]*\bof=\S*(?:history\.jsonl|\.dream_cursor)",  # dd of=
             r"\bsed\s+-i[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # sed -i
+            # Block find-based deletion that bypasses standalone rm -rf (#3598).
+            r"\bfind\b.*\b-delete\b",
+            r"\bfind\b.*\b-exec\b.*\brm\b",
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
@@ -607,10 +610,25 @@ class ExecTool(Tool):
                     and p != media_path
                 )
                 if blocked:
+                    # Check context-bound group workspaces first (per-turn).
                     from nanobot.agent.tools.context import current_group_workspaces
 
-                    for gws in current_group_workspaces():
-                        gws_resolved = gws.resolve()
+                    gws_list = list(current_group_workspaces())
+                    # Fallback: detect group workspace paths by convention
+                    # (/workspaces/groups/<id>/...) even when the context var
+                    # is not set (e.g. direct tool invocation outside the
+                    # agent loop's turn processing).
+                    if not gws_list:
+                        parts = str(p).split("/")
+                        for i, part in enumerate(parts):
+                            if part == "groups" and i > 0 and i + 1 < len(parts):
+                                gws_path = Path(*parts[:i + 2])
+                                if gws_path in p.parents or p == gws_path:
+                                    gws_list.append(gws_path)
+                                    break
+
+                    for gws in gws_list:
+                        gws_resolved = gws.resolve() if isinstance(gws, Path) else Path(gws).resolve()
                         if gws_resolved in p.parents or p == gws_resolved:
                             blocked = False
                             break
