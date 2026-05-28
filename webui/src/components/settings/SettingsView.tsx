@@ -384,7 +384,7 @@ export function SettingsView({
   const [webSearchKeyVisible, setWebSearchKeyVisible] = useState(false);
   const [webSearchKeyEditing, setWebSearchKeyEditing] = useState(false);
   const [profileData, setProfileData] = useState<{ soul: string; user: string; memory: string } | null>(null);
-  const [skillsList, setSkillsList] = useState<Array<{ name: string; description: string; source: string }> | null>(null);
+  const [skillsList, setSkillsList] = useState<Array<{ name: string; description: string; source: string; group_name?: string }> | null>(null);
   const [cronJobs, setCronJobs] = useState<Array<{ id: string; name: string; enabled: boolean; schedule: string; schedule_kind?: string; next_run_ms: number | null; last_status?: string | null }> | null>(null);
   const [usersList, setUsersList] = useState<Array<{ id: string; username: string; displayName: string; role: string }> | null>(null);
   const [form, setForm] = useState<AgentSettingsDraft>({
@@ -3939,7 +3939,7 @@ function SkillsSettings({
   token,
   onChanged,
 }: {
-  skills: Array<{ name: string; description: string; source: string; emoji?: string; always?: boolean; disabled?: boolean }> | null;
+  skills: Array<{ name: string; description: string; source: string; emoji?: string; always?: boolean; disabled?: boolean; group_name?: string }> | null;
   token: string;
   onChanged: () => void;
 }) {
@@ -4254,6 +4254,9 @@ function SkillsSettings({
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {filtered.map((s) => {
             const srcInfo = SOURCE_LABELS[s.source] || SOURCE_LABELS.builtin;
+            const srcLabel = (s.source === "group" && (s as any).group_name)
+              ? (s as any).group_name
+              : srcInfo.label;
             return (
               <div
                 key={s.name}
@@ -4293,7 +4296,7 @@ function SkillsSettings({
                     "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold select-none",
                     srcInfo.bg, srcInfo.text,
                   )}>
-                    {srcInfo.label}
+                    {srcLabel}
                   </span>
                   <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                     {renderSkillActions(s)}
@@ -5133,7 +5136,7 @@ function GroupsSettings({ token }: { token: string }) {
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // Group skills
-  const [groupSkills, setGroupSkills] = useState<Array<{ name: string; path: string; source: string }> | null>(null);
+  const [groupSkills, setGroupSkills] = useState<Array<{ name: string; path: string; source: string; group_name?: string }> | null>(null);
   const [skillsLoading, setSkillsLoading] = useState(false);
 
   // Create/edit skill dialog
@@ -5519,7 +5522,7 @@ function GroupsSettings({ token }: { token: string }) {
                           "inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold",
                           "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
                         )}>
-                          {s.source}
+                          {s.group_name || s.source}
                         </span>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">

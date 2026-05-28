@@ -381,6 +381,8 @@ export interface SkillInfo {
   emoji?: string;
   always?: boolean;
   disabled?: boolean;
+  group_id?: string;
+  group_name?: string;
 }
 
 export interface SkillsListPayload {
@@ -709,7 +711,7 @@ export async function updateGroupMember(
 }
 
 export interface GroupSkillsPayload {
-  skills: Array<{ name: string; path: string; source: string }>;
+  skills: Array<{ name: string; path: string; source: string; group_id?: string; group_name?: string }>;
 }
 
 export async function fetchGroupSkills(

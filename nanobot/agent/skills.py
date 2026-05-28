@@ -51,7 +51,15 @@ class SkillsLoader:
             return effective
         return self.disabled_skills
 
-    def _skill_entries_from_dir(self, base: Path, source: str, *, skip_names: set[str] | None = None) -> list[dict[str, str]]:
+    def _skill_entries_from_dir(
+        self,
+        base: Path,
+        source: str,
+        *,
+        skip_names: set[str] | None = None,
+        group_id: str = "",
+        group_name: str = "",
+    ) -> list[dict[str, str]]:
         if not base.exists():
             return []
         entries: list[dict[str, str]] = []
@@ -64,7 +72,12 @@ class SkillsLoader:
             name = skill_dir.name
             if skip_names is not None and name in skip_names:
                 continue
-            entries.append({"name": name, "path": str(skill_file), "source": source})
+            entry: dict[str, str] = {"name": name, "path": str(skill_file), "source": source}
+            if group_id:
+                entry["group_id"] = group_id
+            if group_name:
+                entry["group_name"] = group_name
+            entries.append(entry)
         return entries
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
@@ -94,7 +107,19 @@ class SkillsLoader:
         group_skills: list[dict[str, str]] = []
         for gws in current_group_workspaces():
             gws_skills = gws / "skills"
-            entries = self._skill_entries_from_dir(gws_skills, "group", skip_names=used_names)
+            gid = gws.name
+            gname = gid
+            try:
+                from nanobot.auth import get_group
+
+                g = get_group(gid)
+                if g is not None:
+                    gname = g.display_name or g.name or gid
+            except Exception:
+                pass
+            entries = self._skill_entries_from_dir(
+                gws_skills, "group", skip_names=used_names, group_id=gid, group_name=gname,
+            )
             group_skills.extend(entries)
             used_names.update(entry["name"] for entry in entries)
 
@@ -182,14 +207,15 @@ class SkillsLoader:
             return ""
 
         builtin: list[dict[str, str]] = []
-        group: list[dict[str, str]] = []
+        group_by_name: dict[str, list[dict[str, str]]] = {}
         user: list[dict[str, str]] = []
         for entry in all_skills:
             src = entry.get("source", "")
             if src == "builtin":
                 builtin.append(entry)
             elif src == "group":
-                group.append(entry)
+                gname = entry.get("group_name", "Group")
+                group_by_name.setdefault(gname, []).append(entry)
             else:
                 user.append(entry)
 
@@ -213,8 +239,8 @@ class SkillsLoader:
         blocks: list[str] = []
         if builtin:
             blocks.append(_format_block(builtin, "Builtin Skills"))
-        if group:
-            blocks.append(_format_block(group, "Group Skills"))
+        for gname, gskills in sorted(group_by_name.items()):
+            blocks.append(_format_block(gskills, f"Group Skills ({gname})"))
         if user:
             blocks.append(_format_block(user, "User Skills"))
         return "\n\n".join(blocks)

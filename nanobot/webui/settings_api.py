@@ -819,14 +819,19 @@ def skills_list_payload(workspace_path: str, user_id: str | None = None) -> dict
     disabled = set(config.agents.defaults.disabled_skills)
     skills = []
     for skill in loader.list_skills(filter_unavailable=False):
-        skills.append({
+        entry = {
             "name": skill.get("name", ""),
             "description": skill.get("description", ""),
             "source": skill.get("source", ""),
             "emoji": skill.get("emoji", ""),
             "always": skill.get("always", False),
             "disabled": skill["name"] in disabled,
-        })
+        }
+        if skill.get("group_id"):
+            entry["group_id"] = skill["group_id"]
+        if skill.get("group_name"):
+            entry["group_name"] = skill["group_name"]
+        skills.append(entry)
     return {"skills": skills}
 
 
@@ -985,6 +990,7 @@ def group_skills_list(group_id: str) -> dict[str, Any] | None:
     group = get_group(group_id)
     if group is None:
         return None
+    group_name = group.display_name or group.name or group_id
     gws = get_group_workspace_path(group_id)
     skills_dir = gws / "skills"
     entries: list[dict[str, str]] = []
@@ -995,6 +1001,8 @@ def group_skills_list(group_id: str) -> dict[str, Any] | None:
                     "name": d.name,
                     "path": str(d / "SKILL.md"),
                     "source": "group",
+                    "group_id": group_id,
+                    "group_name": group_name,
                 })
     return {"skills": entries}
 
