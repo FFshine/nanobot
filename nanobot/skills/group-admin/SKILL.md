@@ -33,7 +33,7 @@ description: Manage group-level skills for nanobot groups. Use when the user wan
 The system prompt shows a `Workspace Folder` line. For authenticated users the path ends with the database user ID:
 
 ```
-Workspace Folder: /home/user/.nanobot/workspaces/{user_id}
+Workspace Folder: /home/user/.nanobot/workspaces/users/{user_id}
 ```
 
 Extract the last path segment as your user ID. If it is `cli` (the unauthenticated workspace), you need to log in first — tell the user so and stop.
@@ -86,7 +86,7 @@ When a skill needs bundled resources (scripts, references, assets, templates, et
 └── assets/         # Templates, fonts, images, etc.
 ```
 
-**Wrong**: writing scripts/templates to your personal workspace (`~/.nanobot/workspaces/{user_id}/skills/...`). Only you can access those files.
+**Wrong**: writing scripts/templates to your personal workspace (`~/.nanobot/workspaces/users/{user_id}/skills/...`). Only you can access those files.
 **Correct**: writing everything under `~/.nanobot/workspaces/groups/{group_id}/skills/{skill-name}/`.
 
 ### Create a new skill

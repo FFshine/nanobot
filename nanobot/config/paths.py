@@ -71,14 +71,14 @@ def get_workspace_path(workspace: str | None = None, user_id: str = "") -> Path:
     """Resolve and ensure the agent workspace path.
 
     When *user_id* is provided, the workspace is scoped to
-    ``~/.nanobot/workspaces/{user_id}`` regardless of any explicit
+    ``~/.nanobot/workspaces/users/{user_id}`` regardless of any explicit
     workspace override.  This keeps per-user data isolated.
 
     Without a user_id, CLI/unauthenticated sessions use
     ``~/.nanobot/workspaces/cli``.
     """
     if user_id and user_id != "__legacy__":
-        return ensure_dir(Path.home() / ".nanobot" / "workspaces" / user_id)
+        return ensure_dir(Path.home() / ".nanobot" / "workspaces" / "users" / user_id)
     if workspace:
         return ensure_dir(Path(workspace).expanduser())
     return ensure_dir(CLI_WORKSPACE)

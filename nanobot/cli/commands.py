@@ -601,19 +601,41 @@ def _maybe_migrate_to_per_user_workspaces(global_workspace: Path) -> None:
         console.print(f"[yellow]→[/yellow] Migrating workspace to CLI: {CLI_WORKSPACE}")
         shutil.copytree(str(old_workspace), str(CLI_WORKSPACE), dirs_exist_ok=True)
 
-    # Migrate global workspace to admin per-user workspace
+    # Migrate flat user dirs under workspaces/ into workspaces/users/.
+    # Old layout had per-user dirs directly under workspaces/; new layout
+    # keeps them under workspaces/users/ so the tree is
+    #   workspaces/cli groups/ users/
     per_user_root = Path.home() / ".nanobot" / "workspaces"
+    users_subdir = per_user_root / "users"
+    reserved = {"cli", "groups", "users"}
+    if per_user_root.is_dir():
+        for child in sorted(per_user_root.iterdir()):
+            if not child.is_dir():
+                continue
+            if child.name in reserved:
+                continue
+            target = users_subdir / child.name
+            if not target.exists():
+                console.print(
+                    f"[yellow]→[/yellow] Moving legacy user workspace "
+                    f"{child.name} → {target}"
+                )
+                users_subdir.mkdir(exist_ok=True)
+                shutil.move(str(child), str(target))
+
+    # Migrate global workspace to admin per-user workspace
     users = list_users()
     admin_id = getattr(users[0], "id", "") if users else ""
     if not admin_id:
         return
-    target = per_user_root / admin_id
+    target = users_subdir / admin_id
     if target.exists():
         return
     if not global_workspace.exists():
         return
 
     console.print(f"[yellow]→[/yellow] Migrating workspace to per-user: {target}")
+    users_subdir.mkdir(exist_ok=True)
     shutil.copytree(str(global_workspace), str(target), dirs_exist_ok=True)
 
 
