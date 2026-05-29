@@ -88,11 +88,12 @@ def _maybe_create_default_admin(db: sqlite3.Connection) -> None:
     )
     hash_result = hash_password(password)
     now = datetime.now(timezone.utc).isoformat()
+    admin_id = _new_id()
     db.execute(
         "INSERT INTO users (id, username, password_hash, display_name, role, is_active, settings, created_at, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
-            _new_id(),
+            admin_id,
             "admin",
             hash_result,
             "Administrator",
@@ -113,6 +114,37 @@ def _maybe_create_default_admin(db: sqlite3.Connection) -> None:
         "==========================================================",
         password,
     )
+
+    # Create default "群组管理员" group and add the admin as group admin.
+    _init_default_group(db, admin_id, now)
+
+
+def _init_default_group(db: sqlite3.Connection, admin_id: str, now: str) -> None:
+    """Create the default group-admin group, add the first admin to it,
+    and write the group-admin skill as a group-level skill."""
+    from nanobot.config.paths import get_group_workspace_path
+
+    group_id = _new_id()
+    db.execute(
+        "INSERT INTO groups_ (id, name, display_name, settings, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (group_id, "group-admin", "群组管理员", "{}", now, now),
+    )
+    db.execute(
+        "INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, ?)",
+        (group_id, admin_id, "admin"),
+    )
+    db.commit()
+
+    # Write the group-admin skill into the group workspace so only members can see it.
+    from pathlib import Path as _Path
+    _template = _Path(__file__).parent / "group_admin_skill.md"
+    _content = _template.read_text(encoding="utf-8")
+    skill_dir = get_group_workspace_path(group_id) / "skills" / "group-admin"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(_content, encoding="utf-8")
+
+    logger.info("Default group '群组管理员' created with group-admin skill.")
 
 
 def _new_id() -> str:
